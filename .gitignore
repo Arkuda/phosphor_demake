@@ -1,0 +1,10 @@
+.gradle/
+.idea/
+.kotlin/
+**/build/
+local.properties
+*.iml
+captures/*
+!captures/dashboard-final.png
+!captures/ascii-zen.png
+node_modules/

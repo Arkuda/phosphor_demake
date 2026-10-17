@@ -1,0 +1,15 @@
+{
+  "name": "phosphor-offline-art",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build:ascii": "node scripts/build-ascii.ts"
+  },
+  "devDependencies": {
+    "ascii.rest": "0.4.0",
+    "esbuild": "0.25.10"
+  }
+}
