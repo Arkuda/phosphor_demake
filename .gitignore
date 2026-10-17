@@ -7,4 +7,5 @@ local.properties
 captures/*
 !captures/dashboard-final.png
 !captures/ascii-zen.png
+!captures/apps-updated.png
 node_modules/

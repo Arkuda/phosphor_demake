@@ -34,9 +34,11 @@ class MainActivity : Activity(), LauncherHost {
     private lateinit var frame: FrameLayout
     lateinit var art: AsciiArt
         private set
+    lateinit var dock: Dock
+        private set
     private var permissionDone: (() -> Unit)? = null
     private var pageSource:String?=null
-    private var pageCache:List<String> = listOf("dashboard","weather","inbox","monitor","zen")
+    private var pageCache:List<String> = listOf("dashboard","weather","agenda","monitor","zen")
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> if (::terminal.isInitialized) { applyInk(); redraw() } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +46,7 @@ class MainActivity : Activity(), LauncherHost {
         prefs = getSharedPreferences("phosphor", MODE_PRIVATE)
         device = DeviceRepository(this) { if (::terminal.isInitialized) redraw() }
         frame = FrameLayout(this)
+        dock = Dock(this)
         terminal = TerminalView(this)
         frame.addView(terminal, FrameLayout.LayoutParams(-1,-1))
         search = EditText(this).apply {
@@ -92,6 +95,7 @@ class MainActivity : Activity(), LauncherHost {
     override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);drawer(false);terminal.home() }
     override fun onBackPressed() { if(terminal.drawer)drawer(false) else terminal.home() }
     override fun redraw() { if(::terminal.isInitialized)terminal.postInvalidateOnAnimation() }
+    fun openAgenda() { terminal.showPage("agenda") }
     override fun toast(message:String) { Toast.makeText(this,message,Toast.LENGTH_SHORT).show() }
     override fun open(intent:Intent) {
         try { startActivity(intent) } catch(e: android.content.ActivityNotFoundException) { toast("No app handles this action") } catch(e: SecurityException) { toast("Permission required in Android settings") }
@@ -152,7 +156,7 @@ class MainActivity : Activity(), LauncherHost {
         if(raw!=pageSource) {
             pageSource=raw
             pageCache=try { val a=JSONArray(raw);List(a.length().coerceIn(1,10)){a.getString(it)} }
-            catch(e:Exception){listOf("dashboard","weather","inbox","monitor","zen")}
+            catch(e:Exception){listOf("dashboard","weather","agenda","monitor","zen")}
         }
         return pageCache
     }
@@ -170,9 +174,8 @@ class MainActivity : Activity(), LauncherHost {
     }
     private fun choosePage(done:(String)->Unit) { val kinds=listOf("dashboard","weather","inbox","monitor","zen","art","agenda","media","apps","today","notes","todo","pomodoro","calc","world","sky","battery","storage","fetch");choose("page type",kinds){done(kinds[it])} }
     fun appMenu(app:AppEntry) {
-        val key=app.component.flattenToString();val pins=(prefs.getStringSet("pins",emptySet())?:emptySet()).toMutableSet()
-        choose(app.label,listOf(if(key in pins)"unpin" else "pin to dock","app info","uninstall")){ n->when(n){
-            0->{if(key in pins)pins.remove(key) else if(pins.size<5)pins.add(key) else {toast("Dock holds five pins");return@choose};prefs.edit().putStringSet("pins",pins).apply()}
+        choose(app.label,listOf(if(dock.isPinned(app))"unpin" else "pin to dock","app info","uninstall")){ n->when(n){
+            0->dock.togglePin(app)
             1->open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${app.component.packageName}")))
             2->open(Intent(Intent.ACTION_DELETE,Uri.parse("package:${app.component.packageName}")))
         }}
@@ -180,7 +183,7 @@ class MainActivity : Activity(), LauncherHost {
     fun settings() {
         choose("◆ phosphor · settings",listOf(
             "theme · ${prefs.getString("theme","phosphor")}","ambience · ${prefs.getString("ambience","rain")}","CRT glass · ${prefs.getBoolean("crt",true)}","clock · ${if(prefs.getBoolean("clock24",true))"24h" else "12h"}",
-            "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy"
+            "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy","dock apps","calendar events"
         )) { n->when(n){
             0->choose("fourteen inks",Inks.all.map{it.name}){prefs.edit().putString("theme",Inks.all[it].name).apply()}
             1->{val a=listOf("off","rain","stars","embers","snow");choose("ambience",a){prefs.edit().putString("ambience",a[it]).apply()}}
@@ -195,7 +198,9 @@ class MainActivity : Activity(), LauncherHost {
             10->artSettings()
             11->lockSettings()
             12->if(Build.VERSION.SDK_INT>=29){val role=getSystemService(RoleManager::class.java);if(role.isRoleHeld(RoleManager.ROLE_HOME))toast("Phosphor is already your default launcher") else if(role.isRoleAvailable(RoleManager.ROLE_HOME))startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_HOME),41) else open(Intent(Settings.ACTION_HOME_SETTINGS))} else open(Intent(Settings.ACTION_HOME_SETTINGS))
-            13->{val d=AlertDialog.Builder(this).setTitle("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding, or coarse coordinates to its forecast API, only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for pin/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
+            13->{val d=AlertDialog.Builder(this).setTitle("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for pin/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
+            14->dock.settings()
+            15->openAgenda()
         }}
     }
     fun artSettings() {
@@ -239,8 +244,8 @@ class MainActivity : Activity(), LauncherHost {
         }
     }
     fun weatherSettings() {
-        choose("weather · Open-Meteo",listOf("choose city","use approximate location","refresh","disable / clear weather")){n->when(n){
-            0->input("weather city",prefs.getString("weather_city","")?:""){ city->if(city.isNotBlank())device.refreshWeather(city.trim()) }
+        choose("weather · Open-Meteo / wttr.in",listOf("choose city","use approximate location","refresh","disable / clear weather")){n->when(n){
+            0->input("weather city · Самара, RU",prefs.getString("weather_city","")?:""){ city->if(city.isNotBlank())device.refreshWeather(city.trim()) }
             1->permission(Manifest.permission.ACCESS_COARSE_LOCATION){device.refreshWeather("")}
             2->device.refreshWeather()
             3->{prefs.edit().remove("weather_city").remove("weather_cache").putBoolean("weather_enabled",false).apply();device.refreshWeather()}

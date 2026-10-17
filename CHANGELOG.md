@@ -1,5 +1,16 @@
 # Phosphor — independent Android implementation
 
+## 1.2 — calendar, app drawer and Samara weather
+
+- Replaced home notifications with the nearest valid calendar events. Home, the existing **agenda** page and **today** share one responsive widget; no duplicate calendar page type was added. **all ›** and the settings entry open agenda even when it is absent from the saved page list. Inbox notifications remain available.
+- Calendar rows include ongoing, future and all-day events; exclude finished/cancelled/hidden entries; update at event boundaries; and open real Calendar event URIs with occurrence times. All-day UTC dates expire at local midnight. Permission/empty states and touch targets remain bounded in compact/XL layouts.
+- Added native `OverScroller`/`VelocityTracker` inertia to both app-list entry points, converted between physical and Canvas coordinates. A new touch stops motion without launching an app; search, page/lifecycle/size changes and cancelled gestures stop stale motion. Visible rows use cached, text-sized application bitmaps loaded off the UI thread.
+- Added **dock apps** settings with five ordered persistent positions, direct long-press editing, explicit empty positions, duplicate-free swaps and reset. Migrates old pinned selections once; an uninstalled app leaves its position empty rather than silently filling it.
+- Fixed Cyrillic city lookup: the English Open-Meteo index did not find `Самара`. Supports country-qualified input such as `Самара, РФ`, `Самара, RU` and `Samara, RU`, retaining the selected city's time zone.
+- If the Open-Meteo forecast endpoint fails to connect, fetches real wttr.in data for the resolved coordinates. Normalizes it into the existing cache format, retains original three-hour samples for the next 24 hours, identifies the provider in the UI and updates privacy disclosures. No forecast values are invented or interpolated.
+
+**Exercised:** APK 1.2 built/installed on a disposable Android 16/API 36 emulator. Cyrillic `Самара, РФ` entered through the native city dialog produced live wttr.in weather for approximately 53.20767, 50.13553, `Europe/Samara`, with eight native forecast samples. CalendarProvider fixtures covered ongoing/future/all-day/finished/cancelled/hidden events and optional permission. Actual Google Calendar event activities received event intents. Native touch injection measured scroll offsets **474.5 → 728.0 → 1041.5** after release, then at 90/270 ms; tap-to-stop caused no app launch, search reset offset to zero, and the apps page also coasted. Checked icon rendering, dock selection/swaps, empty-slot persistence after force-stop, legacy migration, and a pinned application's uninstall leaving an empty slot. Inspected 1080×2340 and compact 720×1280 XL home/agenda. Calendar fixtures are emulator-only; no fixture APK/code is packaged. Physical devices and Russian mobile networks were not exercised.
+
 ## 1.1 — offline ascii.rest artwork
 
 - Bundled all **217 pieces actually published in `ascii.rest` 0.4.0** under its MIT license. The live website's newer catalogue can differ from this pinned npm release.

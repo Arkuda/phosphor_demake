@@ -12,7 +12,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.database.ContentObserver
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.location.Location
@@ -47,12 +50,15 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.time.LocalDate
+import java.time.ZoneId
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ConcurrentHashMap
 
 /** Foreground-only device observations. Unknown scalar readings use -1 (floats use NaN).
  * Battery current is signed µA as reported by Android; Int.MIN_VALUE means unsupported.
@@ -89,6 +95,8 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
     private var torchId: String? = null
     private var storageCategories: List<Pair<String, Long>> = emptyList()
     private var categoriesTime = 0L
+    private data class AppIcon(val source: String, val resource: Int, val bitmap: Bitmap)
+    private val appIcons = ConcurrentHashMap<ComponentName, AppIcon>()
 
     var apps: List<AppEntry> = emptyList(); private set
     var batteryLevel = -1; private set
@@ -244,11 +252,27 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
                 val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
                 val pm = context.packageManager
                 pm.queryIntentActivities(intent, 0).map { result ->
-                    AppEntry(result.loadLabel(pm).toString(), ComponentName(result.activityInfo.packageName, result.activityInfo.name))
-                }.distinctBy { it.component }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+                    val component = ComponentName(result.activityInfo.packageName, result.activityInfo.name)
+                    AppEntry(result.loadLabel(pm).toString(), component, appIcon(result, component, pm))
+                }.distinctBy { it.component }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label }).also { current ->
+                    val components = current.mapTo(HashSet()) { it.component }
+                    appIcons.keys.retainAll(components)
+                }
             }.getOrDefault(emptyList())
             if (!Thread.currentThread().isInterrupted) publish(epoch) { apps = result }
         }
+    }
+    private fun appIcon(result: ResolveInfo, component: ComponentName, pm: PackageManager): Bitmap {
+        val source = result.activityInfo.applicationInfo.sourceDir
+        val resource = result.iconResource
+        appIcons[component]?.let { if (it.source == source && it.resource == resource) return it.bitmap }
+        // Rasterize once off the UI thread; drawing a list row never loads APK resources.
+        val drawable = result.loadIcon(pm)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, 64, 64)
+        drawable.draw(Canvas(bitmap))
+        appIcons[component] = AppIcon(source, resource, bitmap)
+        return bitmap
     }
 
     fun launch(app: AppEntry) {
@@ -361,12 +385,13 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
         calendarJob = executor?.submit {
             val result = ArrayList<AgendaEvent>()
             runCatching {
-                val start = System.currentTimeMillis()
+                val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
                     ContentUris.appendId(it, start); ContentUris.appendId(it, start + 31 * DAY)
                 }.build()
                 val projection = arrayOf(CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN, CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY)
-                context.contentResolver.query(uri, projection, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
+                val selection = "${CalendarContract.Calendars.VISIBLE}=1 AND (${CalendarContract.Events.STATUS} IS NULL OR ${CalendarContract.Events.STATUS}!=?)"
+                context.contentResolver.query(uri, projection, selection, arrayOf(CalendarContract.Events.STATUS_CANCELED.toString()), "${CalendarContract.Instances.BEGIN} ASC")?.use { cursor ->
                     while (cursor.moveToNext() && result.size < 300 && !Thread.currentThread().isInterrupted) {
                         result.add(AgendaEvent(cursor.getLong(0), cursor.getString(1).orEmpty(), cursor.getLong(2), cursor.getLong(3), cursor.getInt(4) != 0))
                     }
@@ -459,12 +484,19 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
                 var label: String
                 val latitude: Double
                 val longitude: Double
+                var zone: ZoneId? = null
                 if (city != null) {
-                    val query = URLEncoder.encode(city, "UTF-8")
-                    val result = getJson("https://geocoding-api.open-meteo.com/v1/search?name=$query&count=1&language=en&format=json", request)
-                        .optJSONArray("results")?.optJSONObject(0) ?: throw IllegalArgumentException("City not found")
+                    val parts = city.split(',', limit = 2)
+                    val query = URLEncoder.encode(parts[0].trim(), "UTF-8")
+                    val country = parts.getOrNull(1)?.trim()?.let(::weatherCountry)
+                    val filter = country?.let { "&countryCode=$it" }.orEmpty()
+                    // Geocoding searches the selected language's name index, not every translation.
+                    val language = if (parts[0].any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.CYRILLIC }) "ru" else Locale.getDefault().language
+                    val result = getJson("https://geocoding-api.open-meteo.com/v1/search?name=$query&count=1&language=$language&format=json$filter", request)
+                        .optJSONArray("results")?.optJSONObject(0) ?: throw IllegalArgumentException("City not found · try Самара, RU")
                     latitude = result.getDouble("latitude"); longitude = result.getDouble("longitude")
-                    label = listOf(result.getString("name"), result.optString("admin1"), result.optString("country_code")).filter { it.isNotBlank() }.distinct().joinToString(", ")
+                    zone = ZoneId.of(result.getString("timezone"))
+                    label = listOf(result.getString("name"), result.optString("country_code")).filter { it.isNotBlank() }.joinToString(", ")
                 } else {
                     val value = coordinates ?: throw IllegalArgumentException("Location unavailable")
                     // Only coarse coordinates are transmitted, including when fine location was granted.
@@ -473,12 +505,21 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
                     label = "Local · ${String.format(Locale.US, "%.2f, %.2f", latitude, longitude)}"
                 }
                 if (!started || epoch != generation || request != weatherRequest || Thread.currentThread().isInterrupted) return@submit
-                val json = getJson("https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=3&wind_speed_unit=kmh", request)
+                val json = try {
+                    getJson("https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=3&wind_speed_unit=kmh", request)
+                } catch (error: IOException) {
+                    if (!started || epoch != generation || request != weatherRequest || Thread.currentThread().isInterrupted) return@submit
+                    publish(epoch) { if (request == weatherRequest) weatherStatus = "Open-Meteo unavailable · loading wttr.in…" }
+                    val address = "https://wttr.in/$latitude,$longitude"
+                    val data = getJson("$address?format=j1", request)
+                    val localZone = zone ?: ZoneId.of(getText("$address?format=%25Z", request).trim())
+                    BackupWeather.normalize(data, latitude, longitude, localZone, System.currentTimeMillis())
+                }
                 val time = System.currentTimeMillis()
                 val state = parseWeather(json, label, time)
                 publish(epoch) {
                     if (request == weatherRequest) {
-                        weather = state; weatherStatus = "Updated"
+                        weather = state; weatherStatus = "Updated · ${state.source}"
                         prefs.edit().putString("weather_cache", json.toString()).putString("weather_cache_city", label).putLong("weather_cache_time", time).apply()
                     }
                 }
@@ -493,15 +534,28 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
         }
     }
 
-    private fun getJson(address: String, request: Int): JSONObject {
+    private fun weatherCountry(hint: String): String {
+        if (hint.equals("РФ", true) || hint.equals("Российская Федерация", true)) return "RU"
+        val russian = Locale.forLanguageTag("ru")
+        return Locale.getISOCountries().firstOrNull { code ->
+            code.equals(hint, true) || Locale("", code).let {
+                it.getDisplayCountry(Locale.ENGLISH).equals(hint, true) || it.getDisplayCountry(russian).equals(hint, true)
+            }
+        } ?: throw IllegalArgumentException("Unknown country · use an ISO code, e.g. Самара, RU")
+    }
+
+    private fun getJson(address: String, request: Int): JSONObject = JSONObject(getText(address, request))
+
+    private fun getText(address: String, request: Int): String {
         if (!started || request != weatherRequest || Thread.currentThread().isInterrupted) throw IOException("Cancelled")
         val connection = URL(address).openConnection() as HttpURLConnection
         weatherConnection = connection
         try {
             connection.connectTimeout = 12_000; connection.readTimeout = 12_000
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", "PhosphorDemake (+https://github.com/Arkuda/phosphor_demake)")
             if (connection.responseCode !in 200..299) throw IOException("HTTP ${connection.responseCode}")
-            return connection.inputStream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
+            return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         } finally {
             connection.disconnect()
             if (weatherConnection === connection) weatherConnection = null
@@ -513,8 +567,10 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
         val hourly = json.getJSONObject("hourly")
         val daily = json.getJSONObject("daily")
         val times = hourly.getJSONArray("time")
-        val currentHour = current.getString("time").take(13)
-        val indexes = (0 until times.length()).filter { times.getString(it).take(13) >= currentHour }.take(24)
+        val currentTime = LocalDateTime.parse(current.getString("time")).withMinute(0).withSecond(0).withNano(0)
+        val currentHour = currentTime.toString().take(13)
+        val untilHour = currentTime.plusHours(24).toString().take(13)
+        val indexes = (0 until times.length()).filter { times.getString(it).let { stamp -> stamp >= currentHour && stamp < untilHour } }
         val dailyTimes = daily.getJSONArray("time")
         val offset = ZoneOffset.ofTotalSeconds(json.getInt("utc_offset_seconds"))
         fun solar(key: String): String = runCatching {
@@ -527,7 +583,8 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
             (0 until dailyTimes.length()).map { dailyTimes.getString(it) },
             (0 until dailyTimes.length()).map { daily.getJSONArray("temperature_2m_max").getDouble(it) },
             (0 until dailyTimes.length()).map { daily.getJSONArray("temperature_2m_min").getDouble(it) },
-            (0 until dailyTimes.length()).map { daily.getJSONArray("weather_code").getInt(it) }, solar("sunrise"), solar("sunset"), updated
+            (0 until dailyTimes.length()).map { daily.getJSONArray("weather_code").getInt(it) }, solar("sunrise"), solar("sunset"), updated,
+            json.optString("phosphor_source", "Open-Meteo")
         )
     }
 

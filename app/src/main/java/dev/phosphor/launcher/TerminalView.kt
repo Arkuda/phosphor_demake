@@ -2,6 +2,8 @@ package dev.phosphor.launcher
 
 import android.content.Intent
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
@@ -11,6 +13,8 @@ import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.VelocityTracker
+import android.widget.OverScroller
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeProvider
@@ -22,12 +26,32 @@ import kotlin.math.*
 
 class TerminalView(private val host:MainActivity):View(host) {
     var running=false
+        set(value){field=value;if(!value)cancelMotion()}
     var pageIndex=0
     var drawer=false
     var query=""
-    var drawerScroll=0f
+    private var scrollOffset=0f
+    var drawerScroll:Float
+        get()=scrollOffset
+        set(value){cancelMotion();scrollOffset=value.coerceAtLeast(0f)}
     private var transientPage:String?=null
     private val tools=Tools(host)
+    private val calendarWidget=CalendarWidget(host)
+    private val scroller=OverScroller(host)
+    private val viewConfig=ViewConfiguration.get(host)
+    private var velocityTracker:VelocityTracker?=null
+    private var pointerId=-1
+    private var appListVisible=false
+    private var appListTop=0f
+    private var appListBottom=0f
+    private var maxListScroll=0f
+    private var downInAppList=false
+    private var scrollDragging=false
+    private var gestureAxis=0
+    private var suppressClick=false
+    private var gestureCancelled=true
+    private val iconBounds=RectF()
+    private val iconPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var targets:List<TouchTarget> = emptyList()
     private var scale=1f
     private var logicalHeight=1000f
@@ -51,10 +75,10 @@ class TerminalView(private val host:MainActivity):View(host) {
         }
     }
     init { isFocusable=true;importantForAccessibility=IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription="Phosphor dashboard" }
-    fun close(){tools.close();removeCallbacks(holdAction)}
+    fun close(){cancelMotion();tools.close()}
     fun home(){transientPage=null;pageIndex=0;drawerScroll=0f;invalidate()}
     fun showPage(page:String){transientPage=page;host.drawer(false);invalidate()}
-    fun finishPreview(){transientPage=null}
+    fun finishPreview(){cancelMotion();transientPage=null}
     fun quickNames():List<String> {
         val raw=host.prefs.getString("quick","")?:""
         if(raw!=quickSource) {
@@ -76,6 +100,9 @@ class TerminalView(private val host:MainActivity):View(host) {
         ambience(u)
         val pages=host.pages();pageIndex=pageIndex.coerceIn(0,pages.lastIndex)
         val page=if(drawer)"apps" else transientPage?:pages[pageIndex]
+        val isAppList=page=="apps"
+        if(appListVisible && !isAppList)cancelMotion()
+        appListVisible=isAppList
         header(u,page)
         host.art.beginFrame()
         if(drawer)drawApps(u,108f,logicalHeight-150f) else {
@@ -87,10 +114,10 @@ class TerminalView(private val host:MainActivity):View(host) {
                 "monitor"->{clock(u,y,h*.2f);system(u,16f,y+h*.23f,508f,h*.23f);net(u,16f,y+h*.48f,508f,h*.5f)}
                 "zen"->zen(u,y,h)
                 "art"->art(u,y,h)
-                "agenda"->agenda(u,16f,y,508f,h)
+                "agenda"->calendarWidget.draw(u,16f,y,508f,h)
                 "media"->media(u,16f,y,508f,h)
                 "apps"->{u.text("↑ swipe up to search all apps",27f,y,20f,ink.dim);u.hit("search apps",16f,y,508f,48f){host.drawer(true)};drawApps(u,y+52,h-55)}
-                "today"->{clock(u,y,h*.19f);calendar(u,16f,y+h*.22f,508f,h*.34f);agenda(u,16f,y+h*.59f,508f,h*.4f)}
+                "today"->{clock(u,y,h*.19f);calendar(u,16f,y+h*.22f,508f,h*.34f);calendarWidget.draw(u,16f,y+h*.59f,508f,h*.4f)}
                 else->tools.draw(page,u,16f,y,508f,h)
             }
         }
@@ -184,7 +211,7 @@ class TerminalView(private val host:MainActivity):View(host) {
             weather(u,16f,wy,508f,h*.44f,false)
             var ly=wy+h*.44f+14f
             if(host.device.media!=null && h>850f){media(u,16f,ly,508f,136f);ly+=150f}
-            log(u,16f,ly,508f,max(60f,y+h-ly))
+            calendarWidget.draw(u,16f,ly,508f,max(60f,y+h-ly),compact=true)
             return
         }
         val clockH=h*.195f;clock(u,y,clockH)
@@ -198,8 +225,8 @@ class TerminalView(private val host:MainActivity):View(host) {
         if(host.device.media!=null) {
             val mediaHeight=min(130f,h*.14f)
             media(u,16f,rowY,508f,mediaHeight)
-            log(u,16f,rowY+mediaHeight+14f,508f,max(56f,y+h-rowY-mediaHeight-14f))
-        } else log(u,16f,logY,508f,max(56f,y+h-logY))
+            calendarWidget.draw(u,16f,rowY+mediaHeight+14f,508f,max(56f,y+h-rowY-mediaHeight-14f),compact=true)
+        } else calendarWidget.draw(u,16f,logY,508f,max(56f,y+h-logY),compact=true)
     }
     private fun system(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
         val d=host.device;u.panel("sys",x,y,w,h)
@@ -230,11 +257,11 @@ class TerminalView(private val host:MainActivity):View(host) {
     private fun temp(n:Double):Int=(if(host.prefs.getString("units","c")=="f")n*1.8+32 else n).roundToInt()
     private fun weather(u:TerminalUi,x:Float,y:Float,w:Float,h:Float,large:Boolean) {
         val weather=host.device.weather
-        u.panel("wx",x,y,w,h,weather?.city?:"location off")
+        u.panel("wx",x,y,w,h,weather?.city?:host.prefs.getString("weather_city","")?.takeIf{it.isNotBlank()}?:"location off")
         if(weather==null){
             SkyRenderer.draw(u,x+8,y+47,w-16,h-95,null)
             u.rect(x+9,y+26,w-18,46f,u.ink.bg)
-            u.text("weather not configured",x+16,y+29,20f,u.ink.fg,w-32)
+            u.text(if(host.prefs.getString("weather_city","").isNullOrBlank())"weather not configured" else "forecast unavailable",x+16,y+29,20f,u.ink.fg,w-32)
             u.text(host.device.weatherStatus,x+16,y+h-48,16f,u.ink.dim,w-32)
             u.text("[ choose city / allow location ]",x+16,y+h-27,17f,u.ink.accent,w-32)
             u.hit("configure weather",x,y,w,h){host.weatherSettings()};return
@@ -249,16 +276,18 @@ class TerminalView(private val host:MainActivity):View(host) {
         val imperial=host.prefs.getString("units","c")=="f";val wind=(weather.wind*(if(imperial).621371 else 1.0)).roundToInt()
         u.text("← ${wind}${if(imperial)"mph" else "kmh"}",x+17,y+135,18f,u.ink.dim)
         val graphH=if(large)h*.22f else 40f;val graphY=y+h-graphH-57
-        val temps=weather.hourlyTemps.take(24);val low=temps.minOrNull()?:0.0;val high=temps.maxOrNull()?:low+1
-        temps.forEachIndexed{i,v->val gx=x+13+i*(w-50)/23;val gy=graphY+graphH-((v-low)/max(1.0,high-low)*graphH).toFloat();u.dot(gx,gy,1.4f,u.ink.fg)
-            val rain=weather.hourlyRain.getOrElse(i){0};u.line(gx,graphY+graphH,gx,graphY+graphH-graphH*rain/100f,u.ink.faint,3f)
-            if(i%3==0){val hour=weather.hourlyTimes.getOrNull(i)?.substringAfter('T')?.take(2)?:"";u.text(if(i==0)"now" else hour,gx-6,y+h-51,17f,if(i==0)u.ink.accent else u.ink.dim)}
+        val temps=weather.hourlyTemps;val low=temps.minOrNull()?:0.0;val high=temps.maxOrNull()?:low+1
+        temps.forEachIndexed{i,v->val gx=x+13+i*(w-50)/max(1,temps.lastIndex);val gy=graphY+graphH-((v-low)/max(1.0,high-low)*graphH).toFloat();u.dot(gx,gy,1.4f,u.ink.fg)
+            val rain=weather.hourlyRain.getOrElse(i){-1};if(rain>=0)u.line(gx,graphY+graphH,gx,graphY+graphH-graphH*rain/100f,u.ink.faint,3f)
+            if(i%3==0){val hour=weather.hourlyTimes.getOrNull(i)?.substringAfter('T')?.take(2)?:"";u.text(hour,gx-6,y+h-51,17f,u.ink.dim)}
         }
         u.text("${temp(high)}°",x+w-39,graphY-6,16f,u.ink.fg);u.text("${temp(low)}°",x+w-39,graphY+graphH-11,16f,u.ink.dim)
         for(i in 0..2){val date=weather.dailyDates.getOrNull(i);val day=try{LocalDate.parse(date).format(DateTimeFormatter.ofPattern("EEE",Locale.ENGLISH)).lowercase()}catch(e:Exception){"—"}
             u.text("$day ↑${weather.dailyHigh.getOrNull(i)?.let{temp(it)}?:"—"} ↓${weather.dailyLow.getOrNull(i)?.let{temp(it)}?:"—"}",x+8+i*(w-16)/3,y+h-27,17f,u.ink.fg,(w-16)/3)
         }
-        if(System.currentTimeMillis()-weather.updated>3600000)u.text("cached",x+w-85,y+27,15f,u.ink.warn)
+        val cached=System.currentTimeMillis()-weather.updated>3600000
+        u.text(weather.source,x+w-190,y+27,14f,u.ink.dim,110f)
+        if(cached)u.text("cached",x+w-70,y+27,12f,u.ink.warn,62f)
         u.hit("weather settings and refresh",x,y,w,h){host.weatherSettings()}
     }
     private fun quick(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
@@ -303,12 +332,6 @@ class TerminalView(private val host:MainActivity):View(host) {
     }
     private fun openNotice(n:Notice){if(!NotificationBridge.open(n.key))host.toast("This notification has no available action")}
     private fun scope(u:TerminalUi,x:Float,y:Float,w:Float,h:Float){var previous=y+h/2;for(i in 0..(w/3).toInt()){val xx=x+i*3;val v=y+h/2+sin(i*.12f+u.time)*h*.18f*sin(i*.03f-u.time*.4f);if(i>0)u.line(xx-3,previous,xx,v,u.ink.dim);previous=v}}
-    private fun agenda(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
-        u.panel("agenda",x,y,w,h,LocalDate.now().toString());val events=host.device.events
-        if(context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR)!=android.content.pm.PackageManager.PERMISSION_GRANTED){u.text("calendar access is off",x+16,y+42,20f,u.ink.dim);u.button("[ allow calendar ]",x+16,y+87,w-32){host.permission(android.Manifest.permission.READ_CALENDAR){host.device.refreshCalendar()}};return}
-        if(events.isEmpty()){u.text("no upcoming events",x+16,y+44,20f,u.ink.dim);return}
-        events.take(((h-40)/68).toInt().coerceAtLeast(0)).forEachIndexed{i,e->val yy=y+35+i*68;u.text(Instant.ofEpochMilli(e.start).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE dd MMM · HH:mm",Locale.ENGLISH)).lowercase(),x+14,yy,18f,u.ink.accent,w-28);u.text(e.title,x+14,yy+25,21f,u.ink.fg,w-28);u.line(x+14,yy+55,x+w-14,yy+55,u.ink.faint);u.hit("event ${e.title}",x+4,yy-4,w-8,64f){host.open(Intent(Intent.ACTION_VIEW,Uri.parse("content://com.android.calendar/events/${e.id}")))}}
-    }
     private fun media(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
         val media=host.device.media;u.panel("media",x,y,w,h,if(media?.playing==true)"playing" else "paused")
         if(media==null){u.text("nothing playing",x+17,y+43,22f,u.ink.dim);u.text("enable notification access for media",x+17,y+79,17f,u.ink.dim,w-34);u.hit("media notification access",x,y,w,h){host.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))};return}
@@ -322,30 +345,50 @@ class TerminalView(private val host:MainActivity):View(host) {
         labels.forEachIndexed{i,s->val bx=x+w*(.16f+i*.27f);u.text("[ $s ]",bx,by,22f,u.ink.fg);u.hit("media ${actions[i]}",bx-10,by-8,w*.24f,44f){host.device.mediaAction(actions[i])}}
     }
     private fun footer(u:TerminalUi) {
-        val y=logicalHeight-31;val pins=host.prefs.getStringSet("pins",emptySet())?:emptySet()
-        val apps=host.device.apps
-        val dock=ArrayList<AppEntry>()
-        pins.forEach{key->apps.firstOrNull{it.component.flattenToString()==key}?.let{dock.add(it)}}
-        val defaults=listOf("phone","messages","chrome","camera","maps","browser","music","files","settings")
-        for(name in defaults){if(dock.size>=5)break;val app=apps.firstOrNull{it.label.lowercase().contains(name) && it !in dock};if(app!=null)dock.add(app)}
-        for(app in apps){if(dock.size>=5)break;if(app !in dock)dock.add(app)}
-        if(dock.isEmpty()){u.text("↑ apps",235f,y,20f,u.ink.accent);u.hit("open app drawer",0f,y-5,540f,35f){host.drawer(true)}}
-        else dock.forEachIndexed{i,app->val cell=508f/dock.size;val x=16+i*cell;u.text(app.label.lowercase(),x+5,y,18f,u.ink.fg,cell-10);u.hit("open ${app.label}",x,y-5,cell,34f,hold={host.appMenu(app)}){host.drawer(false);host.device.launch(app)}}
+        val y=logicalHeight-31
+        val dock=host.dock.entries()
+        val cell=508f/dock.size
+        dock.forEachIndexed{i,app->
+            val x=16+i*cell
+            u.text(app?.label?.lowercase()?:"+",x+5,y,18f,if(app!=null)u.ink.fg else u.ink.dim,cell-10)
+            u.hit(app?.let{"open ${it.label}"}?:"choose dock slot ${i+1}",x,y-5,cell,34f,hold={host.dock.chooseSlot(i)}){
+                if(app==null)host.dock.chooseSlot(i) else {host.drawer(false);host.device.launch(app)}
+            }
+        }
         val p=host.pages();val total=p.size;for(i in 0 until total)u.dot(270f+(i-(total-1)/2f)*12,logicalHeight-3,if(i==pageIndex)2f else 1.1f,if(i==pageIndex)u.ink.accent else u.ink.dim)
     }
     private fun appMatches():List<AppEntry> {
         val apps=host.device.apps
-        if(matchingQuery!=query || matchingApps!==apps){matchingQuery=query;matchingApps=apps;val q=query.trim().lowercase();matches=if(q.isEmpty())apps else apps.mapNotNull{a->val s=a.label.lowercase();val score=when{ s.startsWith(q)->0; s.contains(q)->10;isSubsequence(q,s)->20;editDistance(q,s.take(max(q.length,min(s.length,q.length+1))))<=if(q.length<4)1 else 2->30;else->null };score?.let{Triple(it,a.label,a)}}.sortedWith(compareBy<Triple<Int,String,AppEntry>>{it.first}.thenBy{it.second}).map{it.third}}
+        if(matchingQuery!=query || matchingApps!==apps){cancelMotion();matchingQuery=query;matchingApps=apps;val q=query.trim().lowercase();matches=if(q.isEmpty())apps else apps.mapNotNull{a->val s=a.label.lowercase();val score=when{ s.startsWith(q)->0; s.contains(q)->10;isSubsequence(q,s)->20;editDistance(q,s.take(max(q.length,min(s.length,q.length+1))))<=if(q.length<4)1 else 2->30;else->null };score?.let{Triple(it,a.label,a)}}.sortedWith(compareBy<Triple<Int,String,AppEntry>>{it.first}.thenBy{it.second}).map{it.third}}
         return matches
     }
     private fun isSubsequence(q:String,s:String):Boolean{var i=0;for(c in s)if(i<q.length&&q[i]==c)i++;return i==q.length}
     private fun editDistance(a:String,b:String):Int{var prev=IntArray(b.length+1){it};for(i in 1..a.length){val row=IntArray(b.length+1);row[0]=i;for(j in 1..b.length)row[j]=minOf(row[j-1]+1,prev[j]+1,prev[j-1]+if(a[i-1]==b[j-1])0 else 1);prev=row};return prev[b.length]}
     private fun drawApps(u:TerminalUi,y:Float,h:Float) {
+        if(h<=0f)return
         val list=appMatches();val rowH=49f*u.fontScale
-        val maxScroll=max(0f,list.size*rowH-h);drawerScroll=drawerScroll.coerceIn(0f,maxScroll)
+        appListTop=y;appListBottom=y+h
+        maxListScroll=max(0f,list.size*rowH-h)
+        scrollOffset=scrollOffset.coerceIn(0f,maxListScroll)
         val saved=u.canvas.save();u.canvas.clipRect(16f,y,524f,y+h)
-        if(list.isEmpty()){u.text("no matching apps",29f,y+20,20f,u.ink.dim);u.button("[ search the web ]",26f,y+63,488f){webSearch()}}
-        else list.forEachIndexed {i,app->val yy=y+i*rowH-drawerScroll;if(yy+rowH>=y&&yy<y+h){if(i%2==0)u.rect(16f,yy,508f,rowH,u.ink.faint);u.text(if(i==0&&query.isNotBlank())"▶" else "·",26f,yy+13,20f,u.ink.accent);u.text(app.label.lowercase(),56f,yy+13,21f,u.ink.fg,440f);if(yy>=y&&yy+rowH<=y+h)u.hit("app ${app.label}",16f,yy,508f,rowH,hold={host.appMenu(app)}){host.drawer(false);host.device.launch(app)}}}
+        if(list.isEmpty()){
+            u.text("no matching apps",29f,y+20,20f,u.ink.dim)
+            u.button("[ search the web ]",26f,y+63,488f){webSearch()}
+        } else {
+            val first=(scrollOffset/rowH).toInt().coerceAtLeast(0)
+            val last=((scrollOffset+h)/rowH).toInt().coerceAtMost(list.lastIndex)
+            val iconSize=21f*u.fontScale
+            val labelX=40f+iconSize
+            for(i in first..last){
+                val app=list[i];val yy=y+i*rowH-scrollOffset
+                if(i%2==0)u.rect(16f,yy,508f,rowH,u.ink.faint)
+                val iconY=yy+(rowH-iconSize)/2
+                iconBounds.set(28f,iconY,28f+iconSize,iconY+iconSize)
+                u.canvas.drawBitmap(app.icon,null,iconBounds,iconPaint)
+                u.text(app.label.lowercase(),labelX,yy+13*u.fontScale,21f,u.ink.fg,512f-labelX)
+                if(yy>=y&&yy+rowH<=y+h)u.hit("app ${app.label}",16f,yy,508f,rowH,hold={host.appMenu(app)}){host.drawer(false);host.device.launch(app)}
+            }
+        }
         u.canvas.restoreToCount(saved)
         u.text("${list.size} apps",400f,30f,15f,u.ink.dim,124f)
     }
@@ -362,18 +405,76 @@ class TerminalView(private val host:MainActivity):View(host) {
         else for(i in 0..800)u.dot((i*83.17f)%540,(i*67.31f)%logicalHeight,.45f,TerminalUi.withAlpha(u.ink.dim,28))
     }
     private fun ripple(u:TerminalUi){val elapsed=(SystemClock.uptimeMillis()-rippleTime)/1000f;if(elapsed in 0f..0.6f){for(i in 0..47){val a=i*PI/24;u.dot(rippleX+cos(a).toFloat()*elapsed*150,rippleY+sin(a).toFloat()*elapsed*150,.9f,TerminalUi.withAlpha(u.ink.accent,((1-elapsed/.6f)*110).toInt()))}}}
+    private fun stopFling(){scroller.forceFinished(true)}
+    private fun releaseTracker(){velocityTracker?.recycle();velocityTracker=null;pointerId=-1}
+    private fun cancelMotion(){
+        stopFling();releaseTracker();removeCallbacks(holdAction)
+        downInAppList=false;scrollDragging=false;moving=true;gestureCancelled=true
+    }
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);cancelMotion()}
+    override fun computeScroll(){
+        if(scroller.computeScrollOffset()){
+            scrollOffset=(scroller.currY/scale).coerceIn(0f,maxListScroll)
+            postInvalidateOnAnimation()
+        }
+    }
     override fun onTouchEvent(e:MotionEvent):Boolean {
+        if(e.actionMasked!=MotionEvent.ACTION_DOWN&&gestureCancelled)return true
         val x=e.x/scale;val y=e.y/scale
         when(e.actionMasked){
-            MotionEvent.ACTION_DOWN->{downX=x;downY=y;lastY=y;downTime=SystemClock.uptimeMillis();held=false;moving=false;rippleX=x;rippleY=y;rippleTime=downTime;postDelayed(holdAction,ViewConfiguration.getLongPressTimeout().toLong());return true}
-            MotionEvent.ACTION_MOVE->{val dx=x-downX;val dy=y-downY;if(abs(dx)>15||abs(dy)>15){moving=true;removeCallbacks(holdAction)};if((drawer||host.pages().getOrNull(pageIndex)=="apps")&&abs(dy)>10){drawerScroll+=(lastY-y);invalidate()};lastY=y;return true}
-            MotionEvent.ACTION_UP->{removeCallbacks(holdAction);if(held)return true;val dx=x-downX;val dy=y-downY
-                if(abs(dx)>70&&abs(dx)>abs(dy)*1.3f&&!drawer){transientPage=null;val count=host.pages().size;pageIndex=(pageIndex+(if(dx<0)1 else -1)+count)%count;drawerScroll=0f;performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);invalidate()}
-                else if(!drawer && host.pages().getOrNull(pageIndex)!="apps" && abs(dy)>70 && abs(dy)>abs(dx)){if(dy<0)host.drawer(true) else host.quick("notifications")}
-                else if(!moving){targets.lastOrNull{it.rect.contains(x,y)}?.click?.invoke();performClick()}
+            MotionEvent.ACTION_DOWN->{
+                suppressClick=!scroller.isFinished
+                cancelMotion()
+                downX=x;downY=y;lastY=y;downTime=SystemClock.uptimeMillis();held=false;moving=false;gestureAxis=0;gestureCancelled=false
+                downInAppList=appListVisible&&x in 16f..524f&&y>=appListTop&&y<appListBottom
+                if(downInAppList){velocityTracker=VelocityTracker.obtain().also{it.addMovement(e)};pointerId=e.getPointerId(0)}
+                rippleX=x;rippleY=y;rippleTime=downTime
+                if(!suppressClick)postDelayed(holdAction,ViewConfiguration.getLongPressTimeout().toLong())
                 return true
             }
-            MotionEvent.ACTION_CANCEL->{removeCallbacks(holdAction);return true}
+            MotionEvent.ACTION_POINTER_DOWN,MotionEvent.ACTION_POINTER_UP->{cancelMotion();return true}
+            MotionEvent.ACTION_MOVE->{
+                velocityTracker?.addMovement(e)
+                val dx=x-downX;val dy=y-downY;val slop=viewConfig.scaledTouchSlop/scale
+                if(abs(dx)>slop||abs(dy)>slop){
+                    moving=true;removeCallbacks(holdAction)
+                    if(gestureAxis==0)gestureAxis=if(abs(dy)>abs(dx))1 else 2
+                }
+                if(downInAppList&&gestureAxis==1){
+                    scrollDragging=true
+                    scrollOffset=(scrollOffset+lastY-y).coerceIn(0f,maxListScroll)
+                    invalidate()
+                }
+                lastY=y;return true
+            }
+            MotionEvent.ACTION_UP->{
+                removeCallbacks(holdAction)
+                velocityTracker?.addMovement(e)
+                if(held){releaseTracker();return true}
+                val dx=x-downX;val dy=y-downY
+                if(scrollDragging){
+                    velocityTracker?.let{tracker->
+                        tracker.computeCurrentVelocity(1000,viewConfig.scaledMaximumFlingVelocity.toFloat())
+                        val speed=if(pointerId>=0)-tracker.getYVelocity(pointerId) else 0f
+                        if(abs(speed)>=viewConfig.scaledMinimumFlingVelocity&&maxListScroll>0f){
+                            scroller.fling(0,(scrollOffset*scale).roundToInt(),0,speed.roundToInt(),0,0,0,(maxListScroll*scale).roundToInt())
+                            postInvalidateOnAnimation()
+                        }
+                    }
+                }
+                releaseTracker()
+                if(abs(dx)>70&&abs(dx)>abs(dy)*1.3f&&!drawer&&!scrollDragging){
+                    transientPage=null;val count=host.pages().size;pageIndex=(pageIndex+(if(dx<0)1 else -1)+count)%count
+                    drawerScroll=0f;performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);invalidate()
+                } else if(!drawer&&!appListVisible&&abs(dy)>70&&abs(dy)>abs(dx)){
+                    if(dy<0)host.drawer(true) else host.quick("notifications")
+                } else if(!moving&&!suppressClick){
+                    targets.lastOrNull{it.rect.contains(x,y)}?.click?.invoke();performClick()
+                }
+                scrollDragging=false;downInAppList=false
+                return true
+            }
+            MotionEvent.ACTION_CANCEL->{cancelMotion();return true}
         }
         return true
     }

@@ -5,9 +5,10 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.Bitmap
 
 // Local device state only. Unknown readings stay null rather than becoming simulated data.
-data class AppEntry(val label: String, val component: ComponentName)
+data class AppEntry(val label: String, val component: ComponentName, val icon: Bitmap)
 data class Notice(val key: String, val app: String, val title: String, val text: String, val time: Long, val intent: PendingIntent?)
 data class AgendaEvent(val id: Long, val title: String, val start: Long, val end: Long, val allDay: Boolean)
 data class WeatherState(
@@ -15,7 +16,7 @@ data class WeatherState(
     val code: Int, val wind: Double, val windDirection: Double, val isDay: Boolean,
     val hourlyTimes: List<String>, val hourlyTemps: List<Double>, val hourlyRain: List<Int>,
     val dailyDates: List<String>, val dailyHigh: List<Double>, val dailyLow: List<Double>,
-    val dailyCodes: List<Int>, val sunrise: String, val sunset: String, val updated: Long
+    val dailyCodes: List<Int>, val sunrise: String, val sunset: String, val updated: Long, val source: String
 )
 data class BatterySample(val time: Long, val level: Int, val current: Int)
 data class MediaState(val title: String, val artist: String, val playing: Boolean, val position: Long, val duration: Long)
