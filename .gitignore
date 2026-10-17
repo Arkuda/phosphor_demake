@@ -16,4 +16,8 @@ captures/*
 !captures/weather-dialog-compact-fit-1.4.png
 !captures/frameless-matrix-main-1.4.png
 !captures/frameless-keyguard-1.4.png
+!captures/animation-crt-1.5.gif
+!captures/animation-terminal-1.5.gif
+!captures/animation-matrix-1.5.gif
+!captures/animation-selector-compact-1.5.png
 node_modules/

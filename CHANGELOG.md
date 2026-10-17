@@ -1,5 +1,14 @@
 # Phosphor — independent Android implementation
 
+## 1.5 — selectable page animations
+
+- Added **◆ phosphor → page animation** with three effects and an explicit **off · instant** option. Stable preference keys preserve the choice across process restarts; existing installations default to **CRT beam**.
+- **terminal slide** moves the live page in the swipe direction, with a phosphor edge and terminal cursor. **Matrix scan** erases/reveals it through a horizontal scan beam with short binary/symbol trails; reversing the swipe reverses the scan. Both include the actual artwork WebView.
+- All effects share the retained animator, paints and input/lifecycle handling. Matrix clipping is cleared on completion/interruption; no screen-sized snapshots or frame-sized allocations are introduced. Off bypasses the animator entirely, even when system animation speed is slowed; global animation disable and battery saver also remain respected.
+- README includes three actual animated previews and the compact four-mode selector. This release also includes all changes listed under **1.4**.
+
+**Exercised:** APK 1.5 (versionCode 6) built and installed on Android 16/API 36. Recorded all three effects in both directions at 1080×2340, and exercised all four modes forward/back at 720×1280/XL. Verified default CRT, persisted terminal/Matrix/off choices after force-stop/relaunch, a complete non-scrolling compact selector, both new effects with a real embedded ascii.rest scene in both directions, and instant mode with system animation scale 10. Checked both new modes with global animations disabled and battery saver; inspected light-theme Matrix, overlapping swipe/dock-tap blocking and Matrix pause/resume through actual Android settings. Smoke-checked weather, quick-actions and dock menu routing after adding the setting. Final AndroidRuntime error log was empty.
+
 ## 1.4 — dialog sizing, CRT transitions and dock labels
 
 - Native menu rows are now styled in the adapter before ListView measures them, rather than growing after measurement. Dialogs use the available width (up to 560 dp) and wrap content vertically; compact titles use less vertical padding. Four-item menus, including wrapped weather choices, fit without unnecessary scrolling; genuinely long menus retain scrolling and checked states.

@@ -32,7 +32,7 @@ class MainActivity : Activity(), LauncherHost {
     private lateinit var terminal: TerminalView
     private lateinit var search: EditText
     private lateinit var frame: FrameLayout
-    private lateinit var pageTransition: CrtPageTransition
+    private lateinit var pageTransition: PageTransition
     internal val isChangingPage: Boolean get() = ::pageTransition.isInitialized && pageTransition.isRunning
     lateinit var art: AsciiArt
         private set
@@ -77,7 +77,7 @@ class MainActivity : Activity(), LauncherHost {
             search.layoutParams = (search.layoutParams as FrameLayout.LayoutParams).apply { topMargin=(48*scale).toInt();height=(54*scale).toInt();leftMargin=(16*scale).toInt();rightMargin=(16*scale).toInt() }
         }
         art = AsciiArt(this, frame)
-        pageTransition = CrtPageTransition(this, frame)
+        pageTransition = PageTransition(this, frame)
         val root = FrameLayout(this).apply {
             addView(frame, FrameLayout.LayoutParams(-1, -1))
             addView(pageTransition, FrameLayout.LayoutParams(-1, -1))
@@ -131,7 +131,8 @@ class MainActivity : Activity(), LauncherHost {
         AppPicker(this).multiple(title, selected, onSave)
     }
     internal fun animatePageChange(direction: Int, swap: () -> Unit) {
-        pageTransition.start(direction, Inks.get(prefs.getString("theme", "phosphor")), device.saver, swap)
+        pageTransition.start(PageAnimation.fromKey(prefs.getString("pageAnimation", null)), direction,
+            Inks.get(prefs.getString("theme", "phosphor")), device.saver, swap)
     }
     internal fun finishPageTransition(applyPending: Boolean = false) {
         if (::pageTransition.isInitialized) pageTransition.finish(applyPending)
@@ -199,7 +200,7 @@ class MainActivity : Activity(), LauncherHost {
     fun settings() {
         choose("◆ phosphor · settings",listOf(
             "theme · ${prefs.getString("theme","phosphor")}","ambience · ${prefs.getString("ambience","rain")}","CRT glass · ${prefs.getBoolean("crt",true)}","widget frames · ${prefs.getBoolean("frames",true)}","clock · ${if(prefs.getBoolean("clock24",true))"24h" else "12h"}",
-            "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy","dock apps","calendar events","open favorites"
+            "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","page animation · ${PageAnimation.fromKey(prefs.getString("pageAnimation",null)).label}","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy","dock apps","calendar events","open favorites"
         )) { n->when(n){
             0->choose("fourteen inks",Inks.all.map{it.name}){prefs.edit().putString("theme",Inks.all[it].name).apply()}
             1->{val a=listOf("off","rain","stars","embers","snow");choose("ambience",a){prefs.edit().putString("ambience",a[it]).apply()}}
@@ -209,16 +210,20 @@ class MainActivity : Activity(), LauncherHost {
             5->choose("temperature / wind",listOf("Celsius · km/h","Fahrenheit · mph")){prefs.edit().putString("units",if(it==0)"c" else "f").apply()}
             6->{val a=listOf("small","medium","large","xl");choose("text size",a){prefs.edit().putString("textSize",a[it]).apply()}}
             7->editPage()
-            8->editQuick()
-            9->weatherSettings()
-            10->permissions()
-            11->artSettings()
-            12->lockSettings()
-            13->if(Build.VERSION.SDK_INT>=29){val role=getSystemService(RoleManager::class.java);if(role.isRoleHeld(RoleManager.ROLE_HOME))toast("Phosphor is already your default launcher") else if(role.isRoleAvailable(RoleManager.ROLE_HOME))startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_HOME),41) else open(Intent(Settings.ACTION_HOME_SETTINGS))} else open(Intent(Settings.ACTION_HOME_SETTINGS))
-            14->{val d=dialogBuilder("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for dock/favorites/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
-            15->dock.settings()
-            16->openAgenda()
-            17->terminal.showPage("favorites")
+            8->{
+                val current=PageAnimation.fromKey(prefs.getString("pageAnimation",null))
+                choose("page animation",PageAnimation.entries.map{if(it==current)"● ${it.label}" else it.label}){prefs.edit().putString("pageAnimation",PageAnimation.entries[it].key).apply()}
+            }
+            9->editQuick()
+            10->weatherSettings()
+            11->permissions()
+            12->artSettings()
+            13->lockSettings()
+            14->if(Build.VERSION.SDK_INT>=29){val role=getSystemService(RoleManager::class.java);if(role.isRoleHeld(RoleManager.ROLE_HOME))toast("Phosphor is already your default launcher") else if(role.isRoleAvailable(RoleManager.ROLE_HOME))startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_HOME),41) else open(Intent(Settings.ACTION_HOME_SETTINGS))} else open(Intent(Settings.ACTION_HOME_SETTINGS))
+            15->{val d=dialogBuilder("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for dock/favorites/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
+            16->dock.settings()
+            17->openAgenda()
+            18->terminal.showPage("favorites")
         }}
     }
     fun artSettings() {
