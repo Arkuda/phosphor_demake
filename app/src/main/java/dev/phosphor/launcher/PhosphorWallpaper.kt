@@ -48,7 +48,7 @@ class PhosphorWallpaper:WallpaperService() {
             try{
                 val choice=prefs.getString("lockTheme","match");val ink=Inks.get(if(choice=="match")prefs.getString("theme","phosphor") else choice)
                 canvas.drawColor(ink.bg);val scale=canvas.width/540f;canvas.scale(scale,scale);val h=canvas.height/scale
-                val u=TerminalUi(canvas,ink,540f,h,SystemClock.uptimeMillis()/1000f)
+                val u=TerminalUi(canvas,ink,540f,h,SystemClock.uptimeMillis()/1000f,frames=prefs.getBoolean("frames",true))
                 // System clock and notifications own the top third; never pretend to replace them.
                 val now=LocalDateTime.now();val clockY=h*.44f
                 if(prefs.getBoolean("lockClock",true)){

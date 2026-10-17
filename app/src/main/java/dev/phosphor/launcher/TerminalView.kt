@@ -77,9 +77,9 @@ class TerminalView(private val host:MainActivity):View(host) {
     }
     init { isFocusable=true;importantForAccessibility=IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription="Phosphor dashboard" }
     fun close(){cancelMotion();tools.close()}
-    fun home(){transientPage=null;pageIndex=0;drawerScroll=0f;invalidate()}
+    fun home(){host.finishPageTransition();transientPage=null;pageIndex=0;drawerScroll=0f;invalidate()}
     fun showPage(page:String){transientPage=page;host.drawer(false);invalidate()}
-    fun finishPreview(){cancelMotion();transientPage=null}
+    fun finishPreview(){host.finishPageTransition();cancelMotion();transientPage=null}
     fun quickNames():List<String> {
         val raw=host.prefs.getString("quick","")?:""
         if(raw!=quickSource) {
@@ -97,7 +97,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         val saved=canvas.save();canvas.scale(scale,scale)
         val t=SystemClock.uptimeMillis()/1000f
         val font=when(host.prefs.getString("textSize","medium")){"small"->.9f;"large"->1.12f;"xl"->1.27f;else->1f}
-        val u=TerminalUi(canvas,ink,540f,logicalHeight,t,font)
+        val u=TerminalUi(canvas,ink,540f,logicalHeight,t,font,host.prefs.getBoolean("frames",true))
         ambience(u)
         val pages=host.pages();pageIndex=pageIndex.coerceIn(0,pages.lastIndex)
         val page=if(drawer)"apps" else transientPage?:pages[pageIndex]
@@ -378,8 +378,9 @@ class TerminalView(private val host:MainActivity):View(host) {
         val cell=508f/dock.size
         dock.forEachIndexed{i,app->
             val x=16+i*cell
-            u.text(app?.label?.lowercase()?:"+",x+5,y,18f,if(app!=null)u.ink.fg else u.ink.dim,cell-10)
-            u.hit(app?.let{"open ${it.label}"}?:"choose dock slot ${i+1}",x,y-5,cell,34f,hold={host.dock.chooseSlot(i)}){
+            val label=app?.let{host.dock.displayName(it)}
+            u.text(label?:"+",x+5,y,18f,if(app!=null)u.ink.fg else u.ink.dim,cell-10)
+            u.hit(label?.let{"open $it"}?:"choose dock slot ${i+1}",x,y-5,cell,34f,hold={host.dock.chooseSlot(i)}){
                 if(app==null)host.dock.chooseSlot(i) else {host.drawer(false);host.device.launch(app)}
             }
         }
@@ -440,7 +441,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         stopFling();releaseTracker();removeCallbacks(holdAction)
         downInAppList=false;scrollDragging=false;moving=true;gestureCancelled=true
     }
-    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);cancelMotion()}
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);host.finishPageTransition(true);cancelMotion()}
     override fun computeScroll(){
         if(scroller.computeScrollOffset()){
             scrollOffset=(scroller.currY/scale).coerceIn(0f,maxListScroll)
@@ -448,6 +449,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         }
     }
     override fun onTouchEvent(e:MotionEvent):Boolean {
+        if(host.isChangingPage){cancelMotion();return true}
         if(e.actionMasked!=MotionEvent.ACTION_DOWN&&gestureCancelled)return true
         val x=e.x/scale;val y=e.y/scale
         when(e.actionMasked){
@@ -493,8 +495,14 @@ class TerminalView(private val host:MainActivity):View(host) {
                 }
                 releaseTracker()
                 if(abs(dx)>70&&abs(dx)>abs(dy)*1.3f&&!drawer&&!scrollDragging){
-                    transientPage=null;val count=host.pages().size;pageIndex=(pageIndex+(if(dx<0)1 else -1)+count)%count
-                    drawerScroll=0f;performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);invalidate()
+                    val count=host.pages().size
+                    val next=(pageIndex+(if(dx<0)1 else -1)+count)%count
+                    if(next!=pageIndex||transientPage!=null){
+                        host.animatePageChange(if(dx<0)1 else -1){
+                            transientPage=null;pageIndex=next;drawerScroll=0f;invalidate()
+                        }
+                        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    }
                 } else if(!drawer&&!appListVisible&&abs(dy)>70&&abs(dy)>abs(dx)){
                     if(dy<0)host.drawer(true) else host.quick("notifications")
                 } else if(!moving&&!suppressClick){
@@ -510,11 +518,12 @@ class TerminalView(private val host:MainActivity):View(host) {
     override fun performClick():Boolean{super.performClick();return true}
     override fun getAccessibilityNodeProvider():AccessibilityNodeProvider = object:AccessibilityNodeProvider(){
         override fun createAccessibilityNodeInfo(id:Int):AccessibilityNodeInfo? {
-            if(id==View.NO_ID){val n=AccessibilityNodeInfo.obtain(this@TerminalView);onInitializeAccessibilityNodeInfo(n);for(i in targets.indices)n.addChild(this@TerminalView,i+1);return n}
+            if(id==View.NO_ID){val n=AccessibilityNodeInfo.obtain(this@TerminalView);onInitializeAccessibilityNodeInfo(n);if(!host.isChangingPage)for(i in targets.indices)n.addChild(this@TerminalView,i+1);return n}
+            if(host.isChangingPage)return null
             val target=targets.getOrNull(id-1)?:return null
             return AccessibilityNodeInfo.obtain().apply { setSource(this@TerminalView,id);setParent(this@TerminalView);packageName=context.packageName;className="android.widget.Button";text=target.label;contentDescription=target.label;isClickable=true;isFocusable=true;isVisibleToUser=true;isEnabled=true;addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);if(target.hold!=null)addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_LONG_CLICK);val loc=IntArray(2);getLocationOnScreen(loc);setBoundsInParent(Rect((target.rect.left*scale).toInt(),(target.rect.top*scale).toInt(),(target.rect.right*scale).toInt(),(target.rect.bottom*scale).toInt()));setBoundsInScreen(Rect(loc[0]+(target.rect.left*scale).toInt(),loc[1]+(target.rect.top*scale).toInt(),loc[0]+(target.rect.right*scale).toInt(),loc[1]+(target.rect.bottom*scale).toInt())) }
         }
-        override fun performAction(id:Int,action:Int,args:Bundle?):Boolean { val target=targets.getOrNull(id-1)?:return false;return when(action){AccessibilityNodeInfo.ACTION_CLICK->{target.click();sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);true};AccessibilityNodeInfo.ACTION_LONG_CLICK->{target.hold?.invoke();true};AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS->{sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);true};else->false} }
+        override fun performAction(id:Int,action:Int,args:Bundle?):Boolean { if(host.isChangingPage)return false;val target=targets.getOrNull(id-1)?:return false;return when(action){AccessibilityNodeInfo.ACTION_CLICK->{target.click();sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);true};AccessibilityNodeInfo.ACTION_LONG_CLICK->{target.hold?.invoke();true};AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS->{sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);true};else->false} }
     }
     private companion object {
         val WEEKDAYS=arrayOf("mo","tu","we","th","fr","sa","su")

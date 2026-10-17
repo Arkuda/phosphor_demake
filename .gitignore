@@ -13,4 +13,7 @@ captures/*
 !captures/app-picker-1.3.png
 !captures/weather-lock-shared-cache.png
 !captures/calendar-aligned-normal.png
+!captures/weather-dialog-compact-fit-1.4.png
+!captures/frameless-matrix-main-1.4.png
+!captures/frameless-keyguard-1.4.png
 node_modules/

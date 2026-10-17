@@ -1,12 +1,33 @@
 package dev.phosphor.launcher
 
+import android.content.ComponentName
 import org.json.JSONArray
+import org.json.JSONObject
 
 class Dock(private val host: MainActivity) {
     private var cachedApps: List<AppEntry>? = null
     private var cachedSource: String? = null
     private var slots: List<String?> = List(SLOT_COUNT) { null }
     private var cachedEntries: List<AppEntry?> = List(SLOT_COUNT) { null }
+    private var namesSource: String? = null
+    private var namesApps: List<AppEntry>? = null
+    private var customNames: JSONObject? = null
+    private val displayNames = HashMap<ComponentName, String>()
+
+    fun displayName(app: AppEntry): String {
+        val source = host.prefs.getString(NAME_KEY, null)
+        val apps = host.device.apps
+        if (source != namesSource || namesApps !== apps) {
+            namesSource = source
+            namesApps = apps
+            customNames = source?.let { runCatching { JSONObject(it) }.getOrNull() }
+            displayNames.clear()
+        }
+        return displayNames.getOrPut(app.component) {
+            customNames?.optString(app.component.flattenToString())?.takeIf { it.isNotBlank() }
+                ?: app.label.lowercase()
+        }
+    }
 
     fun entries(): List<AppEntry?> {
         val apps = host.device.apps
@@ -32,19 +53,44 @@ class Dock(private val host: MainActivity) {
     fun settings() {
         val current = entries()
         host.choose("dock apps · five ordered slots", current.mapIndexed { index, app ->
-            "${index + 1} · ${app?.label ?: "empty"}"
+            "${index + 1} · ${app?.let(::displayName) ?: "empty"}"
         } + "reset to defaults") { index ->
             if (index < SLOT_COUNT) chooseSlot(index)
             else {
                 val apps = host.device.apps
                 if (apps.isEmpty()) host.toast("Apps are still loading")
-                else save(defaults(apps))
+                else {
+                    host.prefs.edit().remove(NAME_KEY).apply()
+                    save(defaults(apps))
+                }
             }
         }
     }
 
     fun chooseSlot(index: Int) {
         if (index !in 0 until SLOT_COUNT) return
+        val app = entries()[index]
+        if (app == null) {
+            pickSlot(index)
+            return
+        }
+        host.choose("dock ${index + 1} · ${displayName(app)}", listOf("choose app", "rename label", "empty slot")) { action ->
+            when (action) {
+                0 -> pickSlot(index)
+                1 -> host.inputLine("dock label", displayName(app), "Blank = ${app.label}") { value ->
+                    val names = runCatching { JSONObject(host.prefs.getString(NAME_KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
+                    val key = app.component.flattenToString()
+                    val label = value.trim()
+                    if (label.isEmpty()) names.remove(key) else names.put(key, label)
+                    host.prefs.edit().putString(NAME_KEY, names.toString()).apply()
+                    host.redraw()
+                }
+                2 -> assign(index, null)
+            }
+        }
+    }
+
+    private fun pickSlot(index: Int) {
         val current = entries()
         host.pickApp("dock slot ${index + 1}", current[index], allowEmpty = true) { app ->
             assign(index, app?.component?.flattenToString())
@@ -67,7 +113,7 @@ class Dock(private val host: MainActivity) {
         val empty = current.indexOfFirst { it == null }
         if (empty >= 0) assign(empty, key)
         else host.choose("pin ${app.label} · replace slot", current.mapIndexed { index, entry ->
-            "${index + 1} · ${entry?.label ?: "empty"}"
+            "${index + 1} · ${entry?.let(::displayName) ?: "empty"}"
         }) { index -> assign(index, key) }
     }
 
@@ -127,6 +173,7 @@ class Dock(private val host: MainActivity) {
     private companion object {
         const val SLOT_COUNT = 5
         const val PREF_KEY = "dock_apps"
+        const val NAME_KEY = "dock_names"
         val DEFAULT_NAMES = listOf("phone", "messages", "chrome", "camera", "maps", "browser", "music", "files", "settings")
     }
 }

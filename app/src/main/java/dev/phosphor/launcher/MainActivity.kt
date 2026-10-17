@@ -32,6 +32,8 @@ class MainActivity : Activity(), LauncherHost {
     private lateinit var terminal: TerminalView
     private lateinit var search: EditText
     private lateinit var frame: FrameLayout
+    private lateinit var pageTransition: CrtPageTransition
+    internal val isChangingPage: Boolean get() = ::pageTransition.isInitialized && pageTransition.isRunning
     lateinit var art: AsciiArt
         private set
     lateinit var dock: Dock
@@ -75,7 +77,12 @@ class MainActivity : Activity(), LauncherHost {
             search.layoutParams = (search.layoutParams as FrameLayout.LayoutParams).apply { topMargin=(48*scale).toInt();height=(54*scale).toInt();leftMargin=(16*scale).toInt();rightMargin=(16*scale).toInt() }
         }
         art = AsciiArt(this, frame)
-        setContentView(frame)
+        pageTransition = CrtPageTransition(this, frame)
+        val root = FrameLayout(this).apply {
+            addView(frame, FrameLayout.LayoutParams(-1, -1))
+            addView(pageTransition, FrameLayout.LayoutParams(-1, -1))
+        }
+        setContentView(root)
         prefs.registerOnSharedPreferenceChangeListener(prefListener)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         applyInk()
@@ -93,8 +100,8 @@ class MainActivity : Activity(), LauncherHost {
     }
     override fun onResume() { super.onResume();device.start();art.resume();terminal.running=true;redraw() }
     override fun onWindowFocusChanged(hasFocus:Boolean){super.onWindowFocusChanged(hasFocus);if(hasFocus&&::prefs.isInitialized)applyInk()}
-    override fun onPause() { terminal.running=false;art.pause();device.stop();super.onPause() }
-    override fun onDestroy() { prefs.unregisterOnSharedPreferenceChangeListener(prefListener);art.close();terminal.close();super.onDestroy() }
+    override fun onPause() { finishPageTransition(true);terminal.running=false;art.pause();device.stop();super.onPause() }
+    override fun onDestroy() { finishPageTransition();prefs.unregisterOnSharedPreferenceChangeListener(prefListener);art.close();terminal.close();super.onDestroy() }
     override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);drawer(false);terminal.home() }
     override fun onBackPressed() { if(terminal.drawer)drawer(false) else terminal.home() }
     override fun redraw() { if(::terminal.isInitialized)terminal.postInvalidateOnAnimation() }
@@ -103,9 +110,11 @@ class MainActivity : Activity(), LauncherHost {
     override fun open(intent:Intent) {
         try { startActivity(intent) } catch(e: android.content.ActivityNotFoundException) { toast("No app handles this action") } catch(e: SecurityException) { toast("Permission required in Android settings") }
     }
-    override fun input(title:String,initial:String,onDone:(String)->Unit) {
+    override fun input(title:String,initial:String,onDone:(String)->Unit) = inputDialog(title,initial,false,"",onDone)
+    internal fun inputLine(title:String,initial:String,hint:String,onDone:(String)->Unit) = inputDialog(title,initial,true,hint,onDone)
+    private fun inputDialog(title:String,initial:String,singleLine:Boolean,hint:String,onDone:(String)->Unit) {
         val ink=Inks.get(prefs.getString("theme","phosphor"))
-        val edit=EditText(this).apply { setText(initial);setSelection(text.length);typeface=Typeface.MONOSPACE;setTextColor(ink.fg);setBackgroundColor(ink.bg);setPadding(24,18,24,18);minLines=if(title.contains("note",true))6 else 1;maxLines=12;inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE }
+        val edit=EditText(this).apply { setText(initial);setSelection(text.length);this.hint=hint;isSingleLine=singleLine;typeface=Typeface.MONOSPACE;setTextColor(ink.fg);setBackgroundColor(ink.bg);setPadding(24,18,24,18);minLines=if(!singleLine&&title.contains("note",true))6 else 1;maxLines=if(singleLine)1 else 12;inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or if(singleLine)0 else android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE }
         val d=dialogBuilder(title).setView(edit).setPositiveButton("save") { _,_->onDone(edit.text.toString());redraw() }.setNegativeButton("cancel",null).create()
         d.setOnShowListener { edit.requestFocus();d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);styleDialog(d) };d.show()
     }
@@ -121,7 +130,14 @@ class MainActivity : Activity(), LauncherHost {
     fun pickApps(title: String, selected: List<String>, onSave: (List<String>) -> Unit) {
         AppPicker(this).multiple(title, selected, onSave)
     }
+    internal fun animatePageChange(direction: Int, swap: () -> Unit) {
+        pageTransition.start(direction, Inks.get(prefs.getString("theme", "phosphor")), device.saver, swap)
+    }
+    internal fun finishPageTransition(applyPending: Boolean = false) {
+        if (::pageTransition.isInitialized) pageTransition.finish(applyPending)
+    }
     fun drawer(show:Boolean) {
+        finishPageTransition()
         terminal.drawer=show;terminal.drawerScroll=0f
         search.visibility=if(show)View.VISIBLE else View.GONE
         val keyboard=getSystemService(InputMethodManager::class.java)
@@ -182,26 +198,27 @@ class MainActivity : Activity(), LauncherHost {
     }
     fun settings() {
         choose("◆ phosphor · settings",listOf(
-            "theme · ${prefs.getString("theme","phosphor")}","ambience · ${prefs.getString("ambience","rain")}","CRT glass · ${prefs.getBoolean("crt",true)}","clock · ${if(prefs.getBoolean("clock24",true))"24h" else "12h"}",
+            "theme · ${prefs.getString("theme","phosphor")}","ambience · ${prefs.getString("ambience","rain")}","CRT glass · ${prefs.getBoolean("crt",true)}","widget frames · ${prefs.getBoolean("frames",true)}","clock · ${if(prefs.getBoolean("clock24",true))"24h" else "12h"}",
             "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy","dock apps","calendar events","open favorites"
         )) { n->when(n){
             0->choose("fourteen inks",Inks.all.map{it.name}){prefs.edit().putString("theme",Inks.all[it].name).apply()}
             1->{val a=listOf("off","rain","stars","embers","snow");choose("ambience",a){prefs.edit().putString("ambience",a[it]).apply()}}
             2->prefs.edit().putBoolean("crt",!prefs.getBoolean("crt",true)).apply()
-            3->prefs.edit().putBoolean("clock24",!prefs.getBoolean("clock24",true)).apply()
-            4->choose("temperature / wind",listOf("Celsius · km/h","Fahrenheit · mph")){prefs.edit().putString("units",if(it==0)"c" else "f").apply()}
-            5->{val a=listOf("small","medium","large","xl");choose("text size",a){prefs.edit().putString("textSize",a[it]).apply()}}
-            6->editPage()
-            7->editQuick()
-            8->weatherSettings()
-            9->permissions()
-            10->artSettings()
-            11->lockSettings()
-            12->if(Build.VERSION.SDK_INT>=29){val role=getSystemService(RoleManager::class.java);if(role.isRoleHeld(RoleManager.ROLE_HOME))toast("Phosphor is already your default launcher") else if(role.isRoleAvailable(RoleManager.ROLE_HOME))startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_HOME),41) else open(Intent(Settings.ACTION_HOME_SETTINGS))} else open(Intent(Settings.ACTION_HOME_SETTINGS))
-            13->{val d=dialogBuilder("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for dock/favorites/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
-            14->dock.settings()
-            15->openAgenda()
-            16->terminal.showPage("favorites")
+            3->prefs.edit().putBoolean("frames",!prefs.getBoolean("frames",true)).apply()
+            4->prefs.edit().putBoolean("clock24",!prefs.getBoolean("clock24",true)).apply()
+            5->choose("temperature / wind",listOf("Celsius · km/h","Fahrenheit · mph")){prefs.edit().putString("units",if(it==0)"c" else "f").apply()}
+            6->{val a=listOf("small","medium","large","xl");choose("text size",a){prefs.edit().putString("textSize",a[it]).apply()}}
+            7->editPage()
+            8->editQuick()
+            9->weatherSettings()
+            10->permissions()
+            11->artSettings()
+            12->lockSettings()
+            13->if(Build.VERSION.SDK_INT>=29){val role=getSystemService(RoleManager::class.java);if(role.isRoleHeld(RoleManager.ROLE_HOME))toast("Phosphor is already your default launcher") else if(role.isRoleAvailable(RoleManager.ROLE_HOME))startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_HOME),41) else open(Intent(Settings.ACTION_HOME_SETTINGS))} else open(Intent(Settings.ACTION_HOME_SETTINGS))
+            14->{val d=dialogBuilder("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for dock/favorites/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
+            15->dock.settings()
+            16->openAgenda()
+            17->terminal.showPage("favorites")
         }}
     }
     fun artSettings() {

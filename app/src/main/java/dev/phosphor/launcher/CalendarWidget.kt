@@ -53,10 +53,12 @@ class CalendarWidget(private val host: MainActivity) {
             val actionW = min(w * .42f, u.textWidth(action, actionSize / scale) + inset * 2)
             val actionX = x + w - actionW
             val headerY = y + (headerH - headerSize) / 2
-            u.line(x, y + 9f, x + w, y + 9f, u.ink.dim)
-            u.line(x, y + 9f, x, y + h, u.ink.dim)
-            u.line(x + w, y + 9f, x + w, y + h, u.ink.dim)
-            u.line(x, y + h, x + w, y + h, u.ink.dim)
+            if (u.frames) {
+                u.line(x, y + 9f, x + w, y + 9f, u.ink.dim)
+                u.line(x, y + 9f, x, y + h, u.ink.dim)
+                u.line(x + w, y + 9f, x + w, y + h, u.ink.dim)
+                u.line(x, y + h, x + w, y + h, u.ink.dim)
+            }
             u.rect(x + inset / 2, y, max(0f, w - inset), headerH, u.ink.bg)
             u.text(if (compact) "upcoming" else "calendar agenda", x + inset, headerY,
                 headerSize / scale, u.ink.accent, max(0f, actionX - x - inset * 2))

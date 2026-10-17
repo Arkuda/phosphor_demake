@@ -87,7 +87,7 @@ class Tools(private val host: LauncherHost) {
             u.canvas.save()
             u.canvas.translate(x, y)
             u.canvas.scale(scale, scale)
-            val compact = TerminalUi(u.canvas, u.ink, w / scale, h / scale, u.time, u.fontScale)
+            val compact = TerminalUi(u.canvas, u.ink, w / scale, h / scale, u.time, u.fontScale, u.frames)
             render(page, compact, 0f, 0f, w / scale, h / scale)
             u.canvas.restore()
             compact.targets.forEach { target ->

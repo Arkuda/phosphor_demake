@@ -59,7 +59,7 @@ internal class CrtEffect {
         sweep.shader.setLocalMatrix(sweepMatrix)
         u.canvas.drawRect(0f, top, width, top + SWEEP_HEIGHT, sweep)
         u.canvas.drawRect(0f, 0f, width, height, vignette)
-        u.canvas.drawRoundRect(bounds, 14f, 14f, frame)
+        if(u.frames)u.canvas.drawRoundRect(bounds, 14f, 14f, frame)
     }
 
     private companion object {

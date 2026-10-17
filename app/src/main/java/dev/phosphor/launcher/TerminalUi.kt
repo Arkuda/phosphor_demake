@@ -30,7 +30,7 @@ object Inks {
 }
 data class TouchTarget(val rect: RectF, val label: String, val click: () -> Unit, val hold: (() -> Unit)? = null)
 
-class TerminalUi(val canvas: Canvas, val ink: Ink, val width: Float, val height: Float, val time: Float, val fontScale: Float = 1f) {
+class TerminalUi(val canvas: Canvas, val ink: Ink, val width: Float, val height: Float, val time: Float, val fontScale: Float = 1f, val frames: Boolean = true) {
     val targets = ArrayList<TouchTarget>()
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE }
     private val shape = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -47,8 +47,10 @@ class TerminalUi(val canvas: Canvas, val ink: Ink, val width: Float, val height:
     fun line(x1: Float,y1: Float,x2: Float,y2: Float,color: Int=ink.dim,stroke:Float=1f) { shape.color=color;shape.style=Paint.Style.STROKE;shape.strokeWidth=stroke;canvas.drawLine(x1,y1,x2,y2,shape);shape.style=Paint.Style.FILL }
     fun dot(x: Float,y:Float,r:Float=1.2f,color:Int=ink.fg) { shape.color=color;shape.style=Paint.Style.FILL;canvas.drawCircle(x,y,r,shape) }
     fun panel(title: String,x:Float,y:Float,w:Float,h:Float,right:String="") {
-        shape.style=Paint.Style.STROKE;shape.color=ink.dim;shape.strokeWidth=.9f
-        canvas.drawRoundRect(x,y+9,w+x,y+h,4f,4f,shape);shape.style=Paint.Style.FILL
+        if(frames){
+            shape.style=Paint.Style.STROKE;shape.color=ink.dim;shape.strokeWidth=.9f
+            canvas.drawRoundRect(x,y+9,w+x,y+h,4f,4f,shape);shape.style=Paint.Style.FILL
+        }
         val tw=textWidth(title,20f)
         rect(x+18,y,tw+22,23f,ink.bg);text(title,x+28,y-1,20f,ink.accent)
         if(right.isNotEmpty()){ val rw=textWidth(right,18f);rect(x+w-rw-27,y,rw+17,23f,ink.bg);text(right,x+w-rw-20,y,18f,ink.dim) }
