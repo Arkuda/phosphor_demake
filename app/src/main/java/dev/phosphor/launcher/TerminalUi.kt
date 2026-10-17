@@ -62,21 +62,37 @@ class TerminalUi(val canvas: Canvas, val ink: Ink, val width: Float, val height:
         val sheen=(time*.19f%1f)*w
         if(sheen<w*value)rect(x+sheen,y,min(15f,w*value-sheen),h,withAlpha(ink.bright,140))
     }
-    fun clock(value:String,x:Float,y:Float,w:Float,h:Float,color:Int=ink.bright,glow:Boolean=true) {
+    fun clock(value:String,x:Float,y:Float,w:Float,h:Float,color:Int=ink.bright,glow:Boolean=true,blinkColon:Boolean=false,shadow:Boolean=false) {
+        if(value.isEmpty()||w<=0f||h<=0f)return
         val units=(value.length*4-value.count { it==':' }*2-1).toFloat()
-        val cell=min(w/units,h/5f);val ox=x+(w-units*cell)/2
-        var dx=ox
+        val offset=if(shadow)min(6f,min(w/units,h/5f)*.22f) else 0f
+        val cell=min((w-offset)/units,(h-offset)/5f)
+        val ox=x+(w-units*cell-offset)/2
+        val colonVisible=!blinkColon||(time*2).toLong()%2L==0L
+        // Complete the hard shadow before any foreground blocks, including the colon.
+        if(shadow)clockGlyphs(value,ox+offset,y+offset,cell,if(ink.print)ink.dim else ink.accent,false,colonVisible,false)
+        clockGlyphs(value,ox,y,cell,color,glow,colonVisible,!shadow)
+    }
+    private fun clockGlyphs(value:String,x:Float,y:Float,cell:Float,color:Int,glow:Boolean,colonVisible:Boolean,printShadow:Boolean) {
+        var dx=x
         for(ch in value){
-            if(ch==':') { for(row in intArrayOf(1,3))block(dx,y+row*cell,cell,cell,color,glow);dx+=2*cell;continue }
+            if(ch==':') {
+                if(colonVisible){
+                    block(dx,y+cell,cell,cell,color,glow,printShadow)
+                    block(dx,y+3*cell,cell,cell,color,glow,printShadow)
+                }
+                dx+=2*cell
+                continue
+            }
             val glyph=DIGITS[ch] ?: DIGITS['0']!!
-            for(row in 0..4)for(col in 0..2)if(glyph[row][col]=='1')block(dx+col*cell,y+row*cell,cell,cell,color,glow)
+            for(row in 0..4)for(col in 0..2)if(glyph[row][col]=='1')block(dx+col*cell,y+row*cell,cell,cell,color,glow,printShadow)
             dx+=4*cell
         }
     }
-    private fun block(x:Float,y:Float,w:Float,h:Float,color:Int,glow:Boolean) {
+    private fun block(x:Float,y:Float,w:Float,h:Float,color:Int,glow:Boolean,printShadow:Boolean) {
         shape.color=color;shape.style=Paint.Style.FILL
         if(glow&&!ink.print){shape.setShadowLayer(9f,0f,0f,withAlpha(color,150));canvas.drawRect(x,y,x+w,y+h,shape);shape.clearShadowLayer()}
-        if(ink.print){shape.color=withAlpha(ink.accent,65);canvas.drawRect(x+4,y+5,x+w+4,y+h+5,shape);shape.color=color}
+        if(printShadow&&ink.print){shape.color=withAlpha(ink.accent,65);canvas.drawRect(x+4,y+5,x+w+4,y+h+5,shape);shape.color=color}
         canvas.drawRect(x,y,x+w,y+h,shape)
     }
     companion object {

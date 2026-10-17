@@ -8,4 +8,9 @@ captures/*
 !captures/dashboard-final.png
 !captures/ascii-zen.png
 !captures/apps-updated.png
+!captures/clock-1.3.png
+!captures/favorites-1.3.png
+!captures/app-picker-1.3.png
+!captures/weather-lock-shared-cache.png
+!captures/calendar-aligned-normal.png
 node_modules/

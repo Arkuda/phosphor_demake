@@ -36,6 +36,8 @@ class MainActivity : Activity(), LauncherHost {
         private set
     lateinit var dock: Dock
         private set
+    lateinit var favorites: Favorites
+        private set
     private var permissionDone: (() -> Unit)? = null
     private var pageSource:String?=null
     private var pageCache:List<String> = listOf("dashboard","weather","agenda","monitor","zen")
@@ -47,6 +49,7 @@ class MainActivity : Activity(), LauncherHost {
         device = DeviceRepository(this) { if (::terminal.isInitialized) redraw() }
         frame = FrameLayout(this)
         dock = Dock(this)
+        favorites = Favorites(this)
         terminal = TerminalView(this)
         frame.addView(terminal, FrameLayout.LayoutParams(-1,-1))
         search = EditText(this).apply {
@@ -103,24 +106,20 @@ class MainActivity : Activity(), LauncherHost {
     override fun input(title:String,initial:String,onDone:(String)->Unit) {
         val ink=Inks.get(prefs.getString("theme","phosphor"))
         val edit=EditText(this).apply { setText(initial);setSelection(text.length);typeface=Typeface.MONOSPACE;setTextColor(ink.fg);setBackgroundColor(ink.bg);setPadding(24,18,24,18);minLines=if(title.contains("note",true))6 else 1;maxLines=12;inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE }
-        val d=AlertDialog.Builder(this).setTitle(title).setView(edit).setPositiveButton("save") { _,_->onDone(edit.text.toString());redraw() }.setNegativeButton("cancel",null).create()
-        d.setOnShowListener { edit.requestFocus();d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);styleDialog(d) };d.show()
+        val d=dialogBuilder(title).setView(edit).setPositiveButton("save") { _,_->onDone(edit.text.toString());redraw() }.setNegativeButton("cancel",null).create()
+        d.setOnShowListener { edit.requestFocus();d.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);styleDialog(d) };d.show()
     }
-    override fun choose(title:String,options:List<String>,onChoose:(Int)->Unit) { val d=AlertDialog.Builder(this).setTitle(title).setItems(options.toTypedArray()) { _,i->onChoose(i);redraw() }.setNegativeButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show() }
+    override fun choose(title:String,options:List<String>,onChoose:(Int)->Unit) { val d=dialogBuilder(title).setItems(options.toTypedArray()) { _,i->onChoose(i);redraw() }.setNegativeButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show() }
+    private fun dialogBuilder(title: String): AlertDialog.Builder = AlertDialog.Builder(this)
+        .setCustomTitle(NativeDialogs.title(this, title, Inks.get(prefs.getString("theme", "phosphor"))))
     private fun styleDialog(d:AlertDialog) {
-        val ink=Inks.get(prefs.getString("theme","phosphor"))
-        d.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if(ink.print)ink.bg else 0xff07101e.toInt()))
-        fun tint(view:View) {
-            if(view is android.widget.TextView){view.setTextColor(ink.fg);view.typeface=Typeface.MONOSPACE}
-            if(view is android.view.ViewGroup)for(i in 0 until view.childCount)tint(view.getChildAt(i))
-        }
-        d.window?.decorView?.let{tint(it)}
-        d.listView?.setOnHierarchyChangeListener(object:android.view.ViewGroup.OnHierarchyChangeListener {
-            override fun onChildViewAdded(parent:View?,child:View?){child?.let{tint(it)}}
-            override fun onChildViewRemoved(parent:View?,child:View?){}
-        })
-        d.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(ink.accent)
-        d.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink.fg)
+        NativeDialogs.style(d, Inks.get(prefs.getString("theme","phosphor")))
+    }
+    fun pickApp(title: String, selected: AppEntry?, allowEmpty: Boolean, onChoose: (AppEntry?) -> Unit) {
+        AppPicker(this).single(title, selected, allowEmpty, onChoose)
+    }
+    fun pickApps(title: String, selected: List<String>, onSave: (List<String>) -> Unit) {
+        AppPicker(this).multiple(title, selected, onSave)
     }
     fun drawer(show:Boolean) {
         terminal.drawer=show;terminal.drawerScroll=0f
@@ -172,18 +171,19 @@ class MainActivity : Activity(), LauncherHost {
             }
         }
     }
-    private fun choosePage(done:(String)->Unit) { val kinds=listOf("dashboard","weather","inbox","monitor","zen","art","agenda","media","apps","today","notes","todo","pomodoro","calc","world","sky","battery","storage","fetch");choose("page type",kinds){done(kinds[it])} }
+    private fun choosePage(done:(String)->Unit) { val kinds=listOf("dashboard","weather","inbox","monitor","zen","art","agenda","media","apps","favorites","today","notes","todo","pomodoro","calc","world","sky","battery","storage","fetch");choose("page type",kinds){done(kinds[it])} }
     fun appMenu(app:AppEntry) {
-        choose(app.label,listOf(if(dock.isPinned(app))"unpin" else "pin to dock","app info","uninstall")){ n->when(n){
+        choose(app.label,listOf(if(dock.isPinned(app))"unpin from dock" else "pin to dock",if(favorites.isFavorite(app))"remove from favorites" else "add to favorites","app info","uninstall")){ n->when(n){
             0->dock.togglePin(app)
-            1->open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${app.component.packageName}")))
-            2->open(Intent(Intent.ACTION_DELETE,Uri.parse("package:${app.component.packageName}")))
+            1->favorites.toggle(app)
+            2->open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:${app.component.packageName}")))
+            3->open(Intent(Intent.ACTION_DELETE,Uri.parse("package:${app.component.packageName}")))
         }}
     }
     fun settings() {
         choose("◆ phosphor · settings",listOf(
             "theme · ${prefs.getString("theme","phosphor")}","ambience · ${prefs.getString("ambience","rain")}","CRT glass · ${prefs.getBoolean("crt",true)}","clock · ${if(prefs.getBoolean("clock24",true))"24h" else "12h"}",
-            "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy","dock apps","calendar events"
+            "units · °${prefs.getString("units","c")}","text size · ${prefs.getString("textSize","medium")}","pages · ${pages().size}/10","quick actions","weather / location","optional permissions","ASCII art · ${art.selected.name}","lock screen","set default launcher","about / privacy","dock apps","calendar events","open favorites"
         )) { n->when(n){
             0->choose("fourteen inks",Inks.all.map{it.name}){prefs.edit().putString("theme",Inks.all[it].name).apply()}
             1->{val a=listOf("off","rain","stars","embers","snow");choose("ambience",a){prefs.edit().putString("ambience",a[it]).apply()}}
@@ -198,9 +198,10 @@ class MainActivity : Activity(), LauncherHost {
             10->artSettings()
             11->lockSettings()
             12->if(Build.VERSION.SDK_INT>=29){val role=getSystemService(RoleManager::class.java);if(role.isRoleHeld(RoleManager.ROLE_HOME))toast("Phosphor is already your default launcher") else if(role.isRoleAvailable(RoleManager.ROLE_HOME))startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_HOME),41) else open(Intent(Settings.ACTION_HOME_SETTINGS))} else open(Intent(Settings.ACTION_HOME_SETTINGS))
-            13->{val d=AlertDialog.Builder(this).setTitle("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for pin/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
+            13->{val d=dialogBuilder("Phosphor · independent implementation").setMessage("Native terminal launcher inspired by phosphor.zanoski.com. Not the original commercial app or affiliated with its author.\n\nNo ads, accounts or analytics. Apps, calendar, notes and notifications remain on this device. Weather sends the chosen city to Open-Meteo geocoding and coordinates to Open-Meteo forecasts. If that forecast service is unreachable, coordinates are sent to wttr.in instead. Device location is rounded to two decimals; weather is requested only when configured.\n\nascii.rest artwork by @bas3line is bundled under the MIT license and plays entirely offline. License: settings → ASCII art.\n\nSwipe ↑ apps · ↓ system shade · ← → pages. Hold blank space for pages; hold an app for dock/favorites/info/uninstall. All permissions are optional.").setPositiveButton("close",null).create();d.setOnShowListener{styleDialog(d)};d.show()}
             14->dock.settings()
             15->openAgenda()
+            16->terminal.showPage("favorites")
         }}
     }
     fun artSettings() {
@@ -219,7 +220,7 @@ class MainActivity : Activity(), LauncherHost {
             5->{art.retry();terminal.showPage("art")}
             6->{
                 val license=assets.open("ascii/LICENSE").bufferedReader().use{it.readText()}
-                val d=AlertDialog.Builder(this).setTitle("ascii.rest · @bas3line · MIT").setMessage(license).setPositiveButton("close",null).create()
+                val d=dialogBuilder("ascii.rest · @bas3line · MIT").setMessage(license).setPositiveButton("close",null).create()
                 d.setOnShowListener{styleDialog(d)};d.show()
             }
         }}
@@ -267,14 +268,14 @@ class MainActivity : Activity(), LauncherHost {
         val actions=listOf("torch","wifi","bluetooth","sound","do not disturb","location","battery saver","settings","internet","alarm","calendar","camera","calc","notifications","display","volume","airplane mode","hotspot","search")
         val chosen=terminal.quickNames().toMutableList()
         val checked=actions.map{it in chosen}.toBooleanArray()
-        val d=AlertDialog.Builder(this).setTitle("quick · up to seven").setMultiChoiceItems(actions.toTypedArray(),checked){dialog,i,yes->
+        val d=dialogBuilder("quick · up to seven").setMultiChoiceItems(actions.toTypedArray(),checked){dialog,i,yes->
             if(yes&&chosen.size>=7){(dialog as AlertDialog).listView.setItemChecked(i,false);toast("At most seven actions")} else if(yes)chosen.add(actions[i]) else chosen.remove(actions[i])
         }.setPositiveButton("save"){_,_->prefs.edit().putString("quick",JSONArray(chosen).toString()).apply()}.setNegativeButton("cancel",null).create();d.setOnShowListener{styleDialog(d)};d.show()
     }
     private fun lockSettings() {
         choose("~/lock · live wallpaper",listOf("set as wallpaper / lock screen","theme · ${prefs.getString("lockTheme","match")}","clock · ${prefs.getBoolean("lockClock",true)}","weather · ${prefs.getBoolean("lockWeather",true)}","battery · ${prefs.getBoolean("lockBattery",true)}","next event · ${prefs.getBoolean("lockEvent",true)}","notifications · ${prefs.getBoolean("lockNotifications",true)}")){n->when(n){
             0->{
-                val d=AlertDialog.Builder(this).setTitle("Android draws its own clock")
+                val d=dialogBuilder("Android draws its own clock")
                     .setMessage("For the matching layout, choose a small / compact clock in Android's Wallpaper & style → Lock screen settings. A large double-line system clock can overlap this live wallpaper; Phosphor cannot move or replace it.\n\nThe next screen lets you choose where to apply the wallpaper. Availability depends on your Android version and device.")
                     .setPositiveButton("continue"){_,_->open(Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this,PhosphorWallpaper::class.java)))}
                     .setNegativeButton("cancel",null).create()

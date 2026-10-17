@@ -88,6 +88,7 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
     private var appsJob: Future<*>? = null
     private var calendarJob: Future<*>? = null
     private var weatherJob: Future<*>? = null
+    private var weatherCache: String? = null
     @Volatile private var weatherRequest = 0
     @Volatile private var weatherConnection: HttpURLConnection? = null
     private var locationListener: LocationListener? = null
@@ -128,14 +129,44 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
     var events: List<AgendaEvent> = emptyList(); private set
     var media: MediaState? = null; private set
 
+    private val weatherChanged = Runnable {
+        if (started) {
+            restoreWeatherCache()
+            onChange()
+        }
+    }
+    private val weatherPreferences = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (started) when (key) {
+            null, "weather_cache", "weather_cache_city", "weather_cache_time", "weather_enabled" -> {
+                // A forecast writes three keys atomically; consume the complete snapshot once.
+                handler.removeCallbacks(weatherChanged)
+                handler.post(weatherChanged)
+            }
+        }
+    }
+
     init {
         loadBatteryHistory()
+        restoreWeatherCache()
+    }
+
+    private fun restoreWeatherCache() {
         if (!prefs.getBoolean("weather_enabled", true)) {
+            weatherCache = null
+            weather = null
             weatherStatus = "Weather disabled"
-        } else runCatching {
-            val cached = prefs.getString("weather_cache", null) ?: return@runCatching
-            weather = parseWeather(JSONObject(cached), prefs.getString("weather_cache_city", "").orEmpty(), prefs.getLong("weather_cache_time", 0L))
-            weatherStatus = "Cached weather"
+            return
+        }
+        val cached = prefs.getString("weather_cache", null)
+        val city = prefs.getString("weather_cache_city", "").orEmpty()
+        val updated = prefs.getLong("weather_cache_time", 0L)
+        if (cached == weatherCache && weather?.city == city && weather?.updated == updated) return
+        weatherCache = cached
+        weather = runCatching { cached?.let { parseWeather(JSONObject(it), city, updated) } }.getOrNull()
+        weatherStatus = when {
+            weather != null -> "Cached weather"
+            prefs.getString("weather_city", "").isNullOrBlank() -> "Choose a city or allow location"
+            else -> "Forecast unavailable"
         }
     }
 
@@ -176,6 +207,9 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
         if (started) return
         started = true
         generation++
+        prefs.registerOnSharedPreferenceChangeListener(weatherPreferences)
+        // An existing wallpaper engine may have been hidden while the launcher updated weather.
+        restoreWeatherCache()
         executor = Executors.newSingleThreadExecutor { task -> Thread(task, "phosphor-device").apply { isDaemon = true } }
         lastRx = -1L; lastTx = -1L; lastNetworkTime = 0L
         val systemFilter = IntentFilter().apply {
@@ -219,6 +253,7 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
         started = false
         generation++
         weatherRequest++
+        prefs.unregisterOnSharedPreferenceChangeListener(weatherPreferences)
         handler.removeCallbacksAndMessages(null)
         cancelLocation()
         if (systemReceiverRegistered) runCatching { context.unregisterReceiver(systemReceiver) }
@@ -509,7 +544,7 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
                     getJson("https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=3&wind_speed_unit=kmh", request)
                 } catch (error: IOException) {
                     if (!started || epoch != generation || request != weatherRequest || Thread.currentThread().isInterrupted) return@submit
-                    publish(epoch) { if (request == weatherRequest) weatherStatus = "Open-Meteo unavailable · loading wttr.in…" }
+                    publish(epoch) { if (request == weatherRequest && weatherSelectionMatches(city)) weatherStatus = "Open-Meteo unavailable · loading wttr.in…" }
                     val address = "https://wttr.in/$latitude,$longitude"
                     val data = getJson("$address?format=j1", request)
                     val localZone = zone ?: ZoneId.of(getText("$address?format=%25Z", request).trim())
@@ -518,14 +553,15 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
                 val time = System.currentTimeMillis()
                 val state = parseWeather(json, label, time)
                 publish(epoch) {
-                    if (request == weatherRequest) {
+                    if (request == weatherRequest && weatherSelectionMatches(city)) {
                         weather = state; weatherStatus = "Updated · ${state.source}"
-                        prefs.edit().putString("weather_cache", json.toString()).putString("weather_cache_city", label).putLong("weather_cache_time", time).apply()
+                        weatherCache = json.toString()
+                        prefs.edit().putString("weather_cache", weatherCache).putString("weather_cache_city", label).putLong("weather_cache_time", time).apply()
                     }
                 }
             } catch (error: Exception) {
                 if (!Thread.currentThread().isInterrupted) publish(epoch) {
-                    if (request == weatherRequest) {
+                    if (request == weatherRequest && weatherSelectionMatches(city)) {
                         val reason = if (error is IllegalArgumentException) error.message ?: "Weather unavailable" else "Weather unavailable · check connection"
                         weatherStatus = if (weather != null) "Cached · $reason" else reason
                     }
@@ -533,6 +569,9 @@ class DeviceRepository(context: Context, val onChange: () -> Unit) {
             }
         }
     }
+
+    private fun weatherSelectionMatches(city: String?): Boolean =
+        prefs.getBoolean("weather_enabled", true) && prefs.getString("weather_city", "").orEmpty().trim() == city.orEmpty()
 
     private fun weatherCountry(hint: String): String {
         if (hint.equals("РФ", true) || hint.equals("Российская Федерация", true)) return "RU"

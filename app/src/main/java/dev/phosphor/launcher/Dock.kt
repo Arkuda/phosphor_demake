@@ -45,16 +45,9 @@ class Dock(private val host: MainActivity) {
 
     fun chooseSlot(index: Int) {
         if (index !in 0 until SLOT_COUNT) return
-        entries()
-        val apps = host.device.apps
-        if (apps.isEmpty()) {
-            host.toast("Apps are still loading")
-            return
-        }
-        host.choose("dock slot ${index + 1}", listOf("empty · remove app") + apps.map {
-            "${it.label} · ${it.component.flattenToShortString()}"
-        }) { selected ->
-            assign(index, if (selected == 0) null else apps[selected - 1].component.flattenToString())
+        val current = entries()
+        host.pickApp("dock slot ${index + 1}", current[index], allowEmpty = true) { app ->
+            assign(index, app?.component?.flattenToString())
         }
     }
 

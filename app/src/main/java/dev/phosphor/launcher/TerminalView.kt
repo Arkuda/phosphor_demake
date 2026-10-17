@@ -37,6 +37,7 @@ class TerminalView(private val host:MainActivity):View(host) {
     private var transientPage:String?=null
     private val tools=Tools(host)
     private val calendarWidget=CalendarWidget(host)
+    private val crtEffect=CrtEffect()
     private val scroller=OverScroller(host)
     private val viewConfig=ViewConfiguration.get(host)
     private var velocityTracker:VelocityTracker?=null
@@ -100,7 +101,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         ambience(u)
         val pages=host.pages();pageIndex=pageIndex.coerceIn(0,pages.lastIndex)
         val page=if(drawer)"apps" else transientPage?:pages[pageIndex]
-        val isAppList=page=="apps"
+        val isAppList=page=="apps"||page=="favorites"
         if(appListVisible && !isAppList)cancelMotion()
         appListVisible=isAppList
         header(u,page)
@@ -117,6 +118,11 @@ class TerminalView(private val host:MainActivity):View(host) {
                 "agenda"->calendarWidget.draw(u,16f,y,508f,h)
                 "media"->media(u,16f,y,508f,h)
                 "apps"->{u.text("↑ swipe up to search all apps",27f,y,20f,ink.dim);u.hit("search apps",16f,y,508f,48f){host.drawer(true)};drawApps(u,y+52,h-55)}
+                "favorites"->{
+                    u.text("favorite apps",26f,y+10f,21f,ink.accent,328f)
+                    u.button("[ edit ]",369f,y,155f,40f){host.favorites.edit()}
+                    drawApps(u,y+55f,h-58f,host.favorites.entries(),favoritesPage=true)
+                }
                 "today"->{clock(u,y,h*.19f);calendar(u,16f,y+h*.22f,508f,h*.34f);calendarWidget.draw(u,16f,y+h*.59f,508f,h*.4f)}
                 else->tools.draw(page,u,16f,y,508f,h)
             }
@@ -145,8 +151,8 @@ class TerminalView(private val host:MainActivity):View(host) {
     }
     private fun clock(u:TerminalUi,y:Float,h:Float) {
         val now=LocalDateTime.now();val is24=host.prefs.getBoolean("clock24",true)
-        val value=now.format(DateTimeFormatter.ofPattern(if(is24)"HHmm" else "hhmm"))
-        val clockH=min(120f,h*.61f);u.clock(value,52f,y+6f,405f,clockH)
+        val value=now.format(DateTimeFormatter.ofPattern(if(is24)"HH:mm" else "hh:mm"))
+        val clockH=min(120f,h*.61f);u.clock(value,52f,y+6f,405f,clockH,blinkColon=true,shadow=true)
         u.text(now.format(DateTimeFormatter.ofPattern("ss")),472f,y+clockH-21,20f,u.ink.accent)
         if(!is24)u.text(if(now.hour<12)"am" else "pm",474f,y+20f,16f,u.ink.dim)
         val date=now.format(DateTimeFormatter.ofPattern("EEE dd MMM yyyy",Locale.ENGLISH)).lowercase()
@@ -303,13 +309,35 @@ class TerminalView(private val host:MainActivity):View(host) {
     private fun calendar(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
         val now=LocalDate.now();val month=now.withDayOfMonth(1);val first=month.dayOfWeek.value-1
         u.panel(now.format(DateTimeFormatter.ofPattern("MMMM",Locale.ENGLISH)).lowercase(),x,y,w,h,now.year.toString())
-        val cw=(w-12)/7;val rh=min(25f,(h-50)/6);val ty=y+30
-        for(i in 0..6)u.text(listOf("mo","tu","we","th","fr","sa","su")[i],x+6+i*cw,ty,17f,u.ink.dim,cw)
-        for(day in 1..month.lengthOfMonth()){val idx=first+day-1;val px=x+6+idx%7*cw;val py=ty+25+idx/7*rh
-            if(day==now.dayOfMonth)u.rect(px-1,py-1,24f,21f,u.ink.accent)
-            val busy=host.device.events.any{Instant.ofEpochMilli(it.start).atZone(ZoneId.systemDefault()).toLocalDate()==month.withDayOfMonth(day)}
-            u.text(day.toString().padStart(2,' '),px,py,17f,if(day==now.dayOfMonth)u.ink.bg else if(idx%7>=5)u.ink.dim else u.ink.fg)
-            if(busy)u.dot(px+23,py+16,1.5f,u.ink.accent)
+        val inset=12f
+        val cw=(w-inset*2)/7f
+        val weeks=(first+month.lengthOfMonth()+6)/7
+        val top=y+max(32f,20f*u.fontScale+12f)
+        val available=max(0f,y+h-10f-top)
+        val rowH=min(30f*u.fontScale,available/(weeks+1))
+        val textSize=min(17f,rowH*.72f/u.fontScale)
+        val glyphH=textSize*u.fontScale
+        val gridY=top+(available-rowH*(weeks+1))/2f
+        for(i in 0..6){
+            val label=WEEKDAYS[i]
+            val center=x+inset+(i+.5f)*cw
+            u.text(label,center-u.textWidth(label,textSize)/2f,gridY+(rowH-glyphH)/2f,textSize,u.ink.dim,cw)
+        }
+        val zone=ZoneId.systemDefault()
+        for(day in 1..month.lengthOfMonth()){
+            val idx=first+day-1
+            val center=x+inset+(idx%7+.5f)*cw
+            val py=gridY+(1+idx/7)*rowH+(rowH-glyphH)/2f
+            val label=day.toString()
+            val labelW=u.textWidth(label,textSize)
+            val selected=day==now.dayOfMonth
+            if(selected){
+                val markW=min(cw-4f,max(u.textWidth("00",textSize)+6f,glyphH+6f))
+                u.rect(center-markW/2f,py-2f,markW,glyphH+4f,u.ink.accent)
+            }
+            val busy=host.device.events.any{Instant.ofEpochMilli(it.start).atZone(zone).toLocalDate()==month.withDayOfMonth(day)}
+            u.text(label,center-labelW/2f,py,textSize,if(selected)u.ink.bg else if(idx%7>=5)u.ink.dim else u.ink.fg,cw)
+            if(busy)u.dot(center+labelW/2f+3f,py+glyphH*.8f,1.5f,if(selected)u.ink.bg else u.ink.accent)
         }
         u.hit("open calendar",x,y,w,h){host.open(Intent(Intent.ACTION_VIEW,Uri.parse("content://com.android.calendar/time/${System.currentTimeMillis()}")))}
     }
@@ -357,23 +385,23 @@ class TerminalView(private val host:MainActivity):View(host) {
         }
         val p=host.pages();val total=p.size;for(i in 0 until total)u.dot(270f+(i-(total-1)/2f)*12,logicalHeight-3,if(i==pageIndex)2f else 1.1f,if(i==pageIndex)u.ink.accent else u.ink.dim)
     }
-    private fun appMatches():List<AppEntry> {
-        val apps=host.device.apps
+    private fun appMatches(apps:List<AppEntry> =host.device.apps):List<AppEntry> {
         if(matchingQuery!=query || matchingApps!==apps){cancelMotion();matchingQuery=query;matchingApps=apps;val q=query.trim().lowercase();matches=if(q.isEmpty())apps else apps.mapNotNull{a->val s=a.label.lowercase();val score=when{ s.startsWith(q)->0; s.contains(q)->10;isSubsequence(q,s)->20;editDistance(q,s.take(max(q.length,min(s.length,q.length+1))))<=if(q.length<4)1 else 2->30;else->null };score?.let{Triple(it,a.label,a)}}.sortedWith(compareBy<Triple<Int,String,AppEntry>>{it.first}.thenBy{it.second}).map{it.third}}
         return matches
     }
     private fun isSubsequence(q:String,s:String):Boolean{var i=0;for(c in s)if(i<q.length&&q[i]==c)i++;return i==q.length}
     private fun editDistance(a:String,b:String):Int{var prev=IntArray(b.length+1){it};for(i in 1..a.length){val row=IntArray(b.length+1);row[0]=i;for(j in 1..b.length)row[j]=minOf(row[j-1]+1,prev[j]+1,prev[j-1]+if(a[i-1]==b[j-1])0 else 1);prev=row};return prev[b.length]}
-    private fun drawApps(u:TerminalUi,y:Float,h:Float) {
+    private fun drawApps(u:TerminalUi,y:Float,h:Float,apps:List<AppEntry> =host.device.apps,favoritesPage:Boolean=false) {
         if(h<=0f)return
-        val list=appMatches();val rowH=49f*u.fontScale
+        val list=appMatches(apps);val rowH=49f*u.fontScale
         appListTop=y;appListBottom=y+h
         maxListScroll=max(0f,list.size*rowH-h)
         scrollOffset=scrollOffset.coerceIn(0f,maxListScroll)
         val saved=u.canvas.save();u.canvas.clipRect(16f,y,524f,y+h)
         if(list.isEmpty()){
-            u.text("no matching apps",29f,y+20,20f,u.ink.dim)
-            u.button("[ search the web ]",26f,y+63,488f){webSearch()}
+            u.text(if(favoritesPage)"no favorites yet" else "no matching apps",29f,y+20,20f,u.ink.dim)
+            if(favoritesPage)u.button("[ choose apps ]",26f,y+63,488f){host.favorites.edit()}
+            else u.button("[ search the web ]",26f,y+63,488f){webSearch()}
         } else {
             val first=(scrollOffset/rowH).toInt().coerceAtLeast(0)
             val last=((scrollOffset+h)/rowH).toInt().coerceAtMost(list.lastIndex)
@@ -382,6 +410,7 @@ class TerminalView(private val host:MainActivity):View(host) {
             for(i in first..last){
                 val app=list[i];val yy=y+i*rowH-scrollOffset
                 if(i%2==0)u.rect(16f,yy,508f,rowH,u.ink.faint)
+                u.line(26f,yy+rowH-1f,514f,yy+rowH-1f,TerminalUi.withAlpha(u.ink.dim,90))
                 val iconY=yy+(rowH-iconSize)/2
                 iconBounds.set(28f,iconY,28f+iconSize,iconY+iconSize)
                 u.canvas.drawBitmap(app.icon,null,iconBounds,iconPaint)
@@ -401,7 +430,7 @@ class TerminalView(private val host:MainActivity):View(host) {
     }
     private fun glass(u:TerminalUi) {
         if(!host.prefs.getBoolean("crt",true))return
-        if(!u.ink.print){var y=0f;while(y<logicalHeight){u.rect(0f,y,540f,.65f,0x27000000);y+=2.2f};u.rect(0f,0f,2f,logicalHeight,TerminalUi.withAlpha(u.ink.accent,30));u.rect(538f,0f,2f,logicalHeight,TerminalUi.withAlpha(u.ink.accent,30))}
+        if(!u.ink.print)crtEffect.draw(u)
         else for(i in 0..800)u.dot((i*83.17f)%540,(i*67.31f)%logicalHeight,.45f,TerminalUi.withAlpha(u.ink.dim,28))
     }
     private fun ripple(u:TerminalUi){val elapsed=(SystemClock.uptimeMillis()-rippleTime)/1000f;if(elapsed in 0f..0.6f){for(i in 0..47){val a=i*PI/24;u.dot(rippleX+cos(a).toFloat()*elapsed*150,rippleY+sin(a).toFloat()*elapsed*150,.9f,TerminalUi.withAlpha(u.ink.accent,((1-elapsed/.6f)*110).toInt()))}}}
@@ -486,5 +515,8 @@ class TerminalView(private val host:MainActivity):View(host) {
             return AccessibilityNodeInfo.obtain().apply { setSource(this@TerminalView,id);setParent(this@TerminalView);packageName=context.packageName;className="android.widget.Button";text=target.label;contentDescription=target.label;isClickable=true;isFocusable=true;isVisibleToUser=true;isEnabled=true;addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);if(target.hold!=null)addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_LONG_CLICK);val loc=IntArray(2);getLocationOnScreen(loc);setBoundsInParent(Rect((target.rect.left*scale).toInt(),(target.rect.top*scale).toInt(),(target.rect.right*scale).toInt(),(target.rect.bottom*scale).toInt()));setBoundsInScreen(Rect(loc[0]+(target.rect.left*scale).toInt(),loc[1]+(target.rect.top*scale).toInt(),loc[0]+(target.rect.right*scale).toInt(),loc[1]+(target.rect.bottom*scale).toInt())) }
         }
         override fun performAction(id:Int,action:Int,args:Bundle?):Boolean { val target=targets.getOrNull(id-1)?:return false;return when(action){AccessibilityNodeInfo.ACTION_CLICK->{target.click();sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);true};AccessibilityNodeInfo.ACTION_LONG_CLICK->{target.hold?.invoke();true};AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS->{sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);true};else->false} }
+    }
+    private companion object {
+        val WEEKDAYS=arrayOf("mo","tu","we","th","fr","sa","su")
     }
 }
