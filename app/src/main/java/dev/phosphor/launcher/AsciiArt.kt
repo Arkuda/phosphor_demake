@@ -31,25 +31,41 @@ import org.json.JSONTokener
 import java.io.ByteArrayInputStream
 
 /** Metadata from the bundled, pinned ascii.rest catalogue. */
-data class ArtPiece(val id: String, val name: String, val category: String, val note: String, val cols: Int, val rows: Int, val fps: Int)
+data class ArtPiece(val id: String, val name: String, val category: String, val note: String, val cols: Int, val rows: Int, val fps: Int) {
+    val displayName: String get() = ArtLocale.name(this)
+    val displayNote: String get() = ArtLocale.note(this)
+    val displayCategory: String get() = ArtLocale.category(category)
+}
 
 class AsciiArt(private val host: MainActivity, private val container: FrameLayout) {
-    private var catalogueError: String? = null
-    private var surfaceError: String? = null
-    val error: String? get() = catalogueError ?: surfaceError
+    private class Failure(val resource: Int, val detail: String? = null, val detailResource: Int = 0) {
+        val text: String
+            get() {
+                val message = if (detailResource != 0) L10n.text(detailResource) else detail
+                return if (message == null) L10n.text(resource) else L10n.text(resource, message)
+            }
+    }
+
+    private var catalogueError: Failure? = null
+    private var surfaceError: Failure? = null
+    val error: String? get() = (catalogueError ?: surfaceError)?.text
 
     val pieces: List<ArtPiece> by lazy {
         try {
             val json = host.assets.open("ascii/catalog.json").bufferedReader().use { JSONObject(it.readText()) }
             val entries = json.getJSONArray("pieces")
-            require(entries.length() > 0) { "Empty artwork catalogue" }
+            if (entries.length() == 0) {
+                catalogueError = Failure(R.string.art_catalogue_unavailable, detailResource = R.string.art_empty_catalogue)
+                host.redraw()
+                return@lazy emptyList()
+            }
             List(entries.length()) { index ->
                 val piece = entries.getJSONObject(index)
                 ArtPiece(piece.getString("id"), piece.getString("name"), piece.getString("category"),
                     piece.getString("note"), piece.getInt("cols"), piece.getInt("rows"), piece.getInt("fps"))
             }
         } catch (e: Exception) {
-            catalogueError = "Artwork catalogue unavailable: ${e.message ?: e.javaClass.simpleName}"
+            catalogueError = Failure(R.string.art_catalogue_unavailable, e.message ?: e.javaClass.simpleName)
             host.redraw()
             emptyList()
         }
@@ -176,7 +192,7 @@ class AsciiArt(private val host: MainActivity, private val container: FrameLayou
             }
             return
         }
-        if (error != null || pieces.isEmpty()) return
+        if (catalogueError != null || surfaceError != null || pieces.isEmpty()) return
         val view = web ?: createSurface() ?: return
         if (!surfaceResumed) {
             view.onResume()
@@ -244,7 +260,7 @@ class AsciiArt(private val host: MainActivity, private val container: FrameLayou
 
                 override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                     if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                        fail(view, "Artwork script error: ${message.message()}")
+                        fail(view, Failure(R.string.art_script_error, message.message()))
                     }
                     return true
                 }
@@ -257,7 +273,7 @@ class AsciiArt(private val host: MainActivity, private val container: FrameLayou
             view.loadUrl(INDEX_URL)
             return view
         } catch (e: Exception) {
-            fail(web, "Artwork WebView unavailable: ${e.message ?: e.javaClass.simpleName}")
+            fail(web, Failure(R.string.art_webview_unavailable, e.message ?: e.javaClass.simpleName))
             return null
         }
     }
@@ -284,13 +300,13 @@ class AsciiArt(private val host: MainActivity, private val container: FrameLayou
                     "Content-Security-Policy" to "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'"
                 ), host.assets.open("ascii/$asset"))
             } catch (e: Exception) {
-                if (request.isForMainFrame) view.post { fail(view, "Artwork asset unavailable: ${e.message ?: asset}") }
+                if (request.isForMainFrame) view.post { fail(view, Failure(R.string.art_asset_unavailable, e.message ?: asset)) }
                 deniedResponse()
             }
         }
 
         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-            if (view === web && url != INDEX_URL) fail(view, "Artwork navigation blocked")
+            if (view === web && url != INDEX_URL) fail(view, Failure(R.string.art_navigation_blocked))
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
@@ -300,20 +316,20 @@ class AsciiArt(private val host: MainActivity, private val container: FrameLayou
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame) fail(view, "Artwork load failed: ${error.description}")
+            if (request.isForMainFrame) fail(view, Failure(R.string.art_load_failed, error.description.toString()))
         }
 
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-            if (request.isForMainFrame) fail(view, "Artwork load failed: HTTP ${response.statusCode}")
+            if (request.isForMainFrame) fail(view, Failure(R.string.art_load_failed, "HTTP ${response.statusCode}"))
         }
 
         override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
             handler.cancel()
-            fail(view, "Artwork connection blocked")
+            fail(view, Failure(R.string.art_connection_blocked))
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-            fail(view, if (detail.didCrash()) "Artwork renderer crashed; retry to reload" else "Artwork renderer stopped; retry to reload", rendererGone = true)
+            fail(view, Failure(if (detail.didCrash()) R.string.art_renderer_crashed else R.string.art_renderer_stopped), rendererGone = true)
             return true
         }
     }
@@ -337,31 +353,41 @@ class AsciiArt(private val host: MainActivity, private val container: FrameLayou
         view.setBackgroundColor(ink.bg)
         val config = JSONObject().put("piece", piece.id).put("mono", mono).put("paused", paused)
             .put("ink", rgb(ink.fg)).put("bg", rgb(ink.bg)).put("fps", fps)
-        val script = """(function(){try{if(!window.PhosphorArt||typeof window.PhosphorArt.configure!=="function")throw new Error("Local artwork player did not initialize");var s=window.PhosphorArt.configure($config);if(!s||typeof s!=="object")throw new Error("Invalid artwork player status");return JSON.stringify({error:s.error||null});}catch(e){return JSON.stringify({error:String(e)});}})()"""
+        val script = """(function(){try{if(!window.PhosphorArt||typeof window.PhosphorArt.configure!=="function")return JSON.stringify({failure:"not_initialized"});var s=window.PhosphorArt.configure($config);if(!s||typeof s!=="object")return JSON.stringify({failure:"invalid_status"});return JSON.stringify({error:s.error||null});}catch(e){return JSON.stringify({error:String(e)});}})()"""
         try {
             view.evaluateJavascript(script) { result ->
                 if (view !== web) return@evaluateJavascript
                 try {
                     val status = JSONTokener(result).nextValue() as? String
-                        ?: throw IllegalStateException("Artwork player returned no status")
+                    if (status == null) {
+                        fail(view, Failure(R.string.art_initialization_failed, detailResource = R.string.art_no_status))
+                        return@evaluateJavascript
+                    }
                     val state = JSONObject(status)
-                    if (!state.isNull("error")) {
-                        fail(view, "Artwork player failed: ${state.getString("error")}")
+                    val failure = when (state.optString("failure")) {
+                        "not_initialized" -> R.string.art_not_initialized
+                        "invalid_status" -> R.string.art_invalid_status
+                        else -> 0
+                    }
+                    if (failure != 0) {
+                        fail(view, Failure(R.string.art_player_failed, detailResource = failure))
+                    } else if (!state.isNull("error")) {
+                        fail(view, Failure(R.string.art_player_failed, state.getString("error")))
                     } else if (!ready) {
                         ready = true
                         updateSurface()
                         host.redraw()
                     }
                 } catch (e: Exception) {
-                    fail(view, "Artwork initialization failed: ${e.message ?: e.javaClass.simpleName}")
+                    fail(view, Failure(R.string.art_initialization_failed, e.message ?: e.javaClass.simpleName))
                 }
             }
         } catch (e: Exception) {
-            fail(view, "Artwork player unavailable: ${e.message ?: e.javaClass.simpleName}")
+            fail(view, Failure(R.string.art_player_unavailable, e.message ?: e.javaClass.simpleName))
         }
     }
 
-    private fun fail(view: WebView?, message: String, rendererGone: Boolean = false) {
+    private fun fail(view: WebView?, message: Failure, rendererGone: Boolean = false) {
         if (closed || (view != null && view !== web)) return
         surfaceError = message
         destroySurface(rendererGone)

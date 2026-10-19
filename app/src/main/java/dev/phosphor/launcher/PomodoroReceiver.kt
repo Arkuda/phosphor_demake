@@ -87,6 +87,17 @@ internal object PomodoroEngine {
         if (s.remaining == 0L) finish(context)
         else save(context, s.phase, s.round, true, s.remaining, s.duration)
     }
+    fun refreshLabels(context: Context) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.getNotificationChannel(CHANNEL)?.let {
+            it.name = L10n.text(R.string.tools_pomo_channel)
+            manager.createNotificationChannel(it)
+        }
+        manager.getNotificationChannel("${CHANNEL}_silent")?.let {
+            it.name = L10n.text(R.string.tools_pomo_channel_silent)
+            manager.createNotificationChannel(it)
+        }
+    }
     private fun signal(context: Context, old: String, next: String) {
         val p = prefs(context)
         if (p.getBoolean("pomo_sound", true)) {
@@ -97,15 +108,15 @@ internal object PomodoroEngine {
         val manager = context.getSystemService(NotificationManager::class.java)
         val audible = p.getBoolean("pomo_sound", true)
         val channelId = if (audible) CHANNEL else "${CHANNEL}_silent"
-        val channel = NotificationChannel(channelId, if (audible) "Pomodoro phase alerts" else "Silent pomodoro alerts",
+        val channel = NotificationChannel(channelId, L10n.text(if (audible) R.string.tools_pomo_channel else R.string.tools_pomo_channel_silent),
             if (audible) NotificationManager.IMPORTANCE_DEFAULT else NotificationManager.IMPORTANCE_LOW)
         if (!audible) { channel.setSound(null, null); channel.enableVibration(false) }
         manager.createNotificationChannel(channel)
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
         val builder = Notification.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(if (old == "focus") "Focus complete" else "Break complete")
-            .setContentText(if (next == "focus") "Your next focus session has started." else "Your ${if (next == "long") "long" else "short"} break has started.")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(L10n.text(if (old == "focus") R.string.tools_focus_complete else R.string.tools_break_complete))
+            .setContentText(L10n.text(when (next) { "focus" -> R.string.tools_focus_started; "long" -> R.string.tools_long_started; else -> R.string.tools_short_started }))
             .setAutoCancel(true).setCategory(Notification.CATEGORY_ALARM)
         if (launch != null) builder.setContentIntent(PendingIntent.getActivity(context, REQUEST, launch, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
         manager.notify(REQUEST, builder.build())

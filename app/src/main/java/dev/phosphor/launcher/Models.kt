@@ -14,7 +14,6 @@ data class AgendaEvent(val id: Long, val title: String, val start: Long, val end
 data class WeatherState(
     val city: String, val temperature: Double, val feels: Double, val humidity: Int,
     val code: Int, val wind: Double, val windDirection: Double, val isDay: Boolean,
-    val hourlyTimes: List<String>, val hourlyTemps: List<Double>, val hourlyRain: List<Int>,
     val dailyDates: List<String>, val dailyHigh: List<Double>, val dailyLow: List<Double>,
     val dailyCodes: List<Int>, val sunrise: String, val sunset: String, val updated: Long, val source: String
 )
@@ -27,6 +26,7 @@ interface LauncherHost {
     val device: DeviceRepository
     fun redraw()
     fun input(title: String, initial: String = "", onDone: (String) -> Unit)
+    fun inputNotes(initial: String, onDone: (String) -> Unit)
     fun choose(title: String, options: List<String>, onChoose: (Int) -> Unit)
     fun open(intent: Intent)
     fun toast(message: String)

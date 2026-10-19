@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="art_style_landscape">Landscape</string>
+    <string name="art_style_terminal">Terminal icons</string>
+    <string name="art_style_postcard">ASCII postcard</string>
+    <string name="art_style_orbital">Orbital dial</string>
+    <string name="art_style_forest_lake">Forest lake</string>
+    <string name="art_weather_day">DAY</string>
+    <string name="art_weather_night">NIGHT</string>
+    <string name="art_weather_clear">CLEAR</string>
+    <string name="art_weather_partly">PARTLY CLOUDY</string>
+    <string name="art_weather_cloudy">OVERCAST</string>
+    <string name="art_weather_fog">FOG</string>
+    <string name="art_weather_drizzle">DRIZZLE</string>
+    <string name="art_weather_rain">RAIN</string>
+    <string name="art_weather_snow">SNOW</string>
+    <string name="art_weather_thunder">THUNDER</string>
+    <string name="art_weather_unknown">NO DATA</string>
+    <string name="art_catalogue_unavailable">Artwork catalogue unavailable: %1$s</string>
+    <string name="art_empty_catalogue">Empty artwork catalogue</string>
+    <string name="art_script_error">Artwork script error: %1$s</string>
+    <string name="art_webview_unavailable">Artwork WebView unavailable: %1$s</string>
+    <string name="art_asset_unavailable">Artwork asset unavailable: %1$s</string>
+    <string name="art_navigation_blocked">Artwork navigation blocked</string>
+    <string name="art_load_failed">Artwork load failed: %1$s</string>
+    <string name="art_connection_blocked">Artwork connection blocked</string>
+    <string name="art_renderer_crashed">Artwork renderer crashed; retry to reload</string>
+    <string name="art_renderer_stopped">Artwork renderer stopped; retry to reload</string>
+    <string name="art_player_failed">Artwork player failed: %1$s</string>
+    <string name="art_initialization_failed">Artwork initialization failed: %1$s</string>
+    <string name="art_player_unavailable">Artwork player unavailable: %1$s</string>
+    <string name="art_not_initialized">Error: Local artwork player did not initialize</string>
+    <string name="art_invalid_status">Error: Invalid artwork player status</string>
+    <string name="art_no_status">Artwork player returned no status</string>
+</resources>

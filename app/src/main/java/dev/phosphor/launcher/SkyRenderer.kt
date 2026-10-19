@@ -51,5 +51,18 @@ object SkyRenderer {
         if(code in 45..48)for(i in 0..6)for(j in 0..35)u.dot(x+(j*17+u.time*5+i*21)%w,y+h*(.2f+i*.1f),1f,u.ink.dim)
         c.restoreToCount(save)
     }
-    fun description(code:Int)=when(code){0->"clear";1->"mostly clear";2->"partly cloudy";3->"overcast";45,48->"fog";in 51..57->"drizzle";in 61..67->"rain";in 71..77->"snow";in 80..82->"rain showers";85,86->"snow showers";in 95..99->"thunderstorm";else->"weather"}
+    fun description(code:Int):String = L10n.text(when(code) {
+        0 -> R.string.platform_sky_clear
+        1 -> R.string.platform_sky_mostly_clear
+        2 -> R.string.platform_sky_partly_cloudy
+        3 -> R.string.platform_sky_overcast
+        45,48 -> R.string.platform_sky_fog
+        in 51..57 -> R.string.platform_sky_drizzle
+        in 61..67 -> R.string.platform_sky_rain
+        in 71..77 -> R.string.platform_sky_snow
+        in 80..82 -> R.string.platform_sky_rain_showers
+        85,86 -> R.string.platform_sky_snow_showers
+        in 95..99 -> R.string.platform_sky_thunderstorm
+        else -> R.string.platform_sky_weather
+    })
 }

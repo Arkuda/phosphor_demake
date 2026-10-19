@@ -45,7 +45,7 @@ internal class AppPicker(private val host: MainActivity) {
         val apps = host.device.apps
         // Opening a picker before the repository publishes must never clear saved choices.
         if (apps.isEmpty()) {
-            host.toast("Apps are still loading")
+            host.toast(L10n.text(R.string.menus_apps_loading))
             return
         }
         val ink = Inks.get(host.prefs.getString("theme", "phosphor"))
@@ -62,8 +62,8 @@ internal class AppPicker(private val host: MainActivity) {
         val heading = NativeDialogs.title(host, title, ink)
         root.addView(heading, LinearLayout.LayoutParams(-1, -2))
         val query = EditText(host).apply {
-            hint = "Search apps"
-            contentDescription = "Search apps by name"
+            hint = L10n.text(R.string.menus_search_apps)
+            contentDescription = L10n.text(R.string.menus_search_apps_accessibility)
             isSingleLine = true
             textSize = 16f
             typeface = Typeface.MONOSPACE
@@ -100,7 +100,7 @@ internal class AppPicker(private val host: MainActivity) {
             isFastScrollEnabled = true
         }
         val empty = TextView(host).apply {
-            text = "No matching apps"
+            text = L10n.text(R.string.menus_no_apps)
             textSize = 16f
             typeface = Typeface.MONOSPACE
             setTextColor(ink.fg)
@@ -130,12 +130,12 @@ internal class AppPicker(private val host: MainActivity) {
                 setOnClickListener { action() }
             }, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
-        button("cancel") { dialog.dismiss() }
-        if (multiple) button("save", true) {
+        button(L10n.text(R.string.common_cancel)) { dialog.dismiss() }
+        if (multiple) button(L10n.text(R.string.common_save), true) {
             dialog.dismiss()
             onSave?.invoke(chosen.toList())
             host.redraw()
-        } else if (allowEmpty) button("empty slot", true) {
+        } else if (allowEmpty) button(L10n.text(R.string.menus_empty_slot), true) {
             dialog.dismiss()
             onChoose?.invoke(null)
             host.redraw()
@@ -148,7 +148,7 @@ internal class AppPicker(private val host: MainActivity) {
             adapter.visible.forEachIndexed { index, app ->
                 list.setItemChecked(index, app.component.flattenToString() in chosen)
             }
-            summary.text = if (multiple) "${chosen.size} selected · ${adapter.count} apps" else "${adapter.count} apps"
+            summary.text = if (multiple) L10n.text(R.string.menus_selected_apps,chosen.size,adapter.count) else L10n.text(R.string.menus_app_count,adapter.count)
         }
         list.setOnItemClickListener { _, _, position, _ ->
             val app = adapter.visible[position]
@@ -301,6 +301,7 @@ internal class AppPicker(private val host: MainActivity) {
             row.minimumHeight = NativeDialogs.dp(host, if (compact) 48 else 64)
             row.isChecked = key in selected
             row.isActivated = row.isChecked
+            row.contentDescription = L10n.text(if(row.isChecked) R.string.menus_app_selected else R.string.menus_app_not_selected,app.label)
             return row
         }
     }

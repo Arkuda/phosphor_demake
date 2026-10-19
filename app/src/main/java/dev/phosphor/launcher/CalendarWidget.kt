@@ -28,6 +28,9 @@ class CalendarWidget(private val host: MainActivity) {
     private var nextZoneCheck = 0L
     private var nextChange = 0L
     private var lastNow = 0L
+    private var locale: Locale? = null
+    private var dateFormat = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+    private var timeFormat = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
     private val allEvents: () -> Unit = { host.openAgenda() }
     private val allowCalendar: () -> Unit = {
         host.permission(Manifest.permission.READ_CALENDAR) { host.device.refreshCalendar() }
@@ -49,7 +52,7 @@ class CalendarWidget(private val host: MainActivity) {
             val actionSize = min(18f * scale, headerSize)
             val headerH = min(h, max(24f, headerSize + 8f))
             val inset = min(14f, w * .04f)
-            val action = if (compact) "all ›" else "calendar ›"
+            val action = L10n.text(if (compact) R.string.tools_calendar_all else R.string.tools_calendar_action)
             val actionW = min(w * .42f, u.textWidth(action, actionSize / scale) + inset * 2)
             val actionX = x + w - actionW
             val headerY = y + (headerH - headerSize) / 2
@@ -60,11 +63,11 @@ class CalendarWidget(private val host: MainActivity) {
                 u.line(x, y + h, x + w, y + h, u.ink.dim)
             }
             u.rect(x + inset / 2, y, max(0f, w - inset), headerH, u.ink.bg)
-            u.text(if (compact) "upcoming" else "calendar agenda", x + inset, headerY,
+            u.text(L10n.text(if (compact) R.string.tools_upcoming else R.string.tools_calendar_agenda), x + inset, headerY,
                 headerSize / scale, u.ink.accent, max(0f, actionX - x - inset * 2))
             u.text(action, actionX + inset / 2, y + (headerH - actionSize) / 2,
                 actionSize / scale, u.ink.dim, max(0f, actionW - inset))
-            u.hit(if (compact) "all ›" else "open calendar", actionX, y, actionW, headerH,
+            u.hit(L10n.text(if (compact) R.string.tools_calendar_all else R.string.tools_open_calendar), actionX, y, actionW, headerH,
                 click = if (compact) allEvents else openCalendar)
 
             val contentY = y + headerH + 2f
@@ -74,13 +77,13 @@ class CalendarWidget(private val host: MainActivity) {
             if (host.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
                 // The complete body is the permission target, including on a 70px home panel.
                 state(u, x + inset, contentY, contentW, contentH,
-                    "calendar access is off", "allow calendar ›", scale, allowCalendar)
+                    L10n.text(R.string.tools_calendar_access_off), L10n.text(R.string.tools_calendar_allow_action), scale, allowCalendar)
                 return
             }
             refreshRows(System.currentTimeMillis())
             if (rows.isEmpty()) {
                 val size = min(20f * scale, contentH)
-                u.text("no upcoming events", x + inset, contentY + (contentH - size) / 2,
+                u.text(L10n.text(R.string.tools_no_events), x + inset, contentY + (contentH - size) / 2,
                     size / scale, u.ink.dim, contentW)
                 return
             }
@@ -117,11 +120,18 @@ class CalendarWidget(private val host: MainActivity) {
         val top = y + max(0f, (h - size * 2 - gap) / 2)
         u.text(message, x, top, size / scale, u.ink.dim, w)
         u.text(action, x, top + size + gap, size / scale, u.ink.accent, w)
-        u.hit("allow calendar", x, y, w, h, click = click)
+        u.hit(L10n.text(R.string.tools_allow_calendar), x, y, w, h, click = click)
     }
 
     private fun refreshRows(now: Long) {
         val events = host.device.events
+        val currentLocale = L10n.locale
+        val localeChanged = locale != currentLocale
+        if (localeChanged) {
+            locale = currentLocale
+            dateFormat = DateTimeFormatter.ofPattern("d MMM", currentLocale)
+            timeFormat = DateTimeFormatter.ofPattern("HH:mm", currentLocale)
+        }
         var zoneChanged = false
         if (source !== events || now >= nextZoneCheck || now < lastNow) {
             val currentZone = ZoneId.systemDefault()
@@ -131,7 +141,7 @@ class CalendarWidget(private val host: MainActivity) {
         }
         val clockMovedBack = now < lastNow
         lastNow = now
-        if (source === events && !zoneChanged && !clockMovedBack && now < nextChange) return
+        if (source === events && !zoneChanged && !localeChanged && !clockMovedBack && now < nextChange) return
         source = events
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         nextChange = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
@@ -148,8 +158,8 @@ class CalendarWidget(private val host: MainActivity) {
                 nextChange = min(nextChange, localEnd)
                 val first = if (start < today) today else start
                 val last = end.minusDays(1)
-                detail = if (first == last) "${date(first, today)} · all day"
-                    else "${date(first, today)}–${date(last, today)} · all day"
+                val dates = if (first == last) date(first, today) else "${date(first, today)}–${date(last, today)}"
+                detail = L10n.text(R.string.tools_event_all_day, dates)
             } else {
                 val expires = max(event.start, event.end)
                 if (expires <= now) continue
@@ -160,33 +170,29 @@ class CalendarWidget(private val host: MainActivity) {
                 val startDate = start.toLocalDate()
                 val endDate = end.toLocalDate()
                 val ending = if (endDate == (if (event.start <= now) today else startDate))
-                    end.format(TIME) else "${date(endDate, today)} ${end.format(TIME)}"
+                    end.format(timeFormat) else "${date(endDate, today)} ${end.format(timeFormat)}"
                 detail = when {
-                    event.start <= now -> "today · now–$ending"
-                    expires == event.start -> "${date(startDate, today)} · ${start.format(TIME)}"
-                    else -> "${date(startDate, today)} · ${start.format(TIME)}–$ending"
+                    event.start <= now -> L10n.text(R.string.tools_event_now, ending)
+                    expires == event.start -> "${date(startDate, today)} · ${start.format(timeFormat)}"
+                    else -> "${date(startDate, today)} · ${start.format(timeFormat)}–$ending"
                 }
             }
-            val title = event.title.ifBlank { "untitled event" }
+            val title = event.title.ifBlank { L10n.text(R.string.tools_untitled_event) }
             val open: () -> Unit = {
                 host.open(Intent(Intent.ACTION_VIEW,
                     ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, event.id))
                     .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, event.start)
                     .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, event.end))
             }
-            projected.add(EventRow(title, detail, "event ${event.title}", open))
+            projected.add(EventRow(title, detail, L10n.text(R.string.tools_event_target, title), open))
         }
         rows = projected
     }
 
     private fun date(value: LocalDate, today: LocalDate): String = when (value) {
-        today -> "today"
-        today.plusDays(1) -> "tomorrow"
-        else -> value.format(DATE).lowercase(Locale.ENGLISH)
+        today -> L10n.text(R.string.tools_today)
+        today.plusDays(1) -> L10n.text(R.string.tools_tomorrow)
+        else -> value.format(dateFormat).lowercase(L10n.locale)
     }
 
-    private companion object {
-        val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
-        val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
-    }
 }

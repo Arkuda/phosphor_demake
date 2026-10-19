@@ -9,7 +9,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** Keep one cache/renderer format; retain wttr.in's actual three-hour forecast samples. */
+/** Normalize current conditions and daily forecasts into the shared cache format. */
 internal object BackupWeather {
     private val solarFormat = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH)
 
@@ -22,7 +22,6 @@ internal object BackupWeather {
         val astronomy = first.getJSONArray("astronomy").getJSONObject(0)
         val rise = LocalTime.parse(astronomy.getString("sunrise"), solarFormat)
         val set = LocalTime.parse(astronomy.getString("sunset"), solarFormat)
-        val times = JSONArray(); val temperatures = JSONArray(); val rain = JSONArray()
         val dates = JSONArray(); val highs = JSONArray(); val lows = JSONArray(); val codes = JSONArray()
         for (i in 0 until days.length()) {
             val day = days.getJSONObject(i)
@@ -32,12 +31,10 @@ internal object BackupWeather {
             var noonCode = -1
             for (j in 0 until hours.length()) {
                 val hour = hours.getJSONObject(j)
-                val stamp = hour.getInt("time")
-                val time = dayDate.atTime(stamp / 100, stamp % 100)
-                times.put(time.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
-                temperatures.put(hour.getDouble("tempC"))
-                rain.put(if (hour.has("chanceofrain")) hour.getInt("chanceofrain") else JSONObject.NULL)
-                if (stamp == 1200) noonCode = condition(hour.getInt("weatherCode"))
+                if (hour.getInt("time") == 1200) {
+                    noonCode = condition(hour.getInt("weatherCode"))
+                    break
+                }
             }
             codes.put(noonCode)
         }
@@ -54,7 +51,6 @@ internal object BackupWeather {
                 .put("wind_speed_10m", current.getDouble("windspeedKmph"))
                 .put("wind_direction_10m", current.getDouble("winddirDegree"))
                 .put("is_day", if (now.toLocalTime() >= rise && now.toLocalTime() < set) 1 else 0))
-            .put("hourly", JSONObject().put("time", times).put("temperature_2m", temperatures).put("precipitation_probability", rain))
             .put("daily", JSONObject().put("time", dates).put("temperature_2m_max", highs).put("temperature_2m_min", lows)
                 .put("weather_code", codes)
                 .put("sunrise", JSONArray().put(date.atTime(rise).toString()))

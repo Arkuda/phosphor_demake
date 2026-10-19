@@ -13,11 +13,13 @@ import android.view.View
 import android.view.animation.LinearInterpolator
 import kotlin.math.abs
 
-internal enum class PageAnimation(val key: String, val label: String, val duration: Long, val saverDuration: Long) {
-    CRT("crt", "CRT beam", 360L, 220L),
-    TERMINAL("terminal", "terminal slide", 320L, 180L),
-    MATRIX("matrix", "Matrix scan", 420L, 240L),
-    NONE("none", "off · instant", 0L, 0L);
+internal enum class PageAnimation(val key: String, private val labelRes: Int, val duration: Long, val saverDuration: Long) {
+    CRT("crt", R.string.menus_animation_crt, 360L, 220L),
+    TERMINAL("terminal", R.string.menus_animation_terminal, 320L, 180L),
+    MATRIX("matrix", R.string.menus_animation_matrix, 420L, 240L),
+    NONE("none", R.string.menus_animation_none, 0L, 0L);
+
+    val label: String get() = L10n.text(labelRes)
 
     companion object {
         fun fromKey(key: String?): PageAnimation = entries.firstOrNull { it.key == key } ?: CRT

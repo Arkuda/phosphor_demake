@@ -53,6 +53,17 @@ class TerminalView(private val host:MainActivity):View(host) {
     private var gestureCancelled=true
     private val iconBounds=RectF()
     private val iconPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private var weatherLabelTime=Long.MIN_VALUE
+    private var weatherUpdatedLabel=""
+    private var weatherCachedLabel=""
+    private var displayLocale:Locale?=null
+    private var dateFormatter=DateTimeFormatter.ofPattern("EEE dd MMM yyyy",Locale.ENGLISH)
+    private var monthFormatter=DateTimeFormatter.ofPattern("MMMM",Locale.ENGLISH)
+    private var weekdayFormatter=DateTimeFormatter.ofPattern("EEE",Locale.ENGLISH)
+    private var weekdayLabels:Array<String> = emptyArray()
+    private var accessibilityPage:String?=null
+    private var accessibilityIndex=-1
+    private var accessibilityCount=-1
     private var targets:List<TouchTarget> = emptyList()
     private var scale=1f
     private var logicalHeight=1000f
@@ -75,7 +86,18 @@ class TerminalView(private val host:MainActivity):View(host) {
             performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
         }
     }
-    init { isFocusable=true;importantForAccessibility=IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription="Phosphor dashboard" }
+    init { isFocusable=true;importantForAccessibility=IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription=L10n.text(R.string.term_page_accessibility,L10n.pageName("dashboard"),1,host.pages().size) }
+    private fun updateLocale() {
+        val locale=L10n.locale
+        if(displayLocale==locale)return
+        displayLocale=locale
+        dateFormatter=DateTimeFormatter.ofPattern("EEE dd MMM yyyy",locale)
+        monthFormatter=DateTimeFormatter.ofPattern("MMMM",locale)
+        weekdayFormatter=DateTimeFormatter.ofPattern("EEE",locale)
+        weekdayLabels=Array(7){DayOfWeek.of(it+1).getDisplayName(java.time.format.TextStyle.SHORT,locale).take(2).lowercase(locale)}
+        weatherLabelTime=Long.MIN_VALUE
+        accessibilityPage=null
+    }
     fun close(){cancelMotion();tools.close()}
     fun home(){host.finishPageTransition();transientPage=null;pageIndex=0;drawerScroll=0f;invalidate()}
     fun showPage(page:String){transientPage=page;host.drawer(false);invalidate()}
@@ -91,6 +113,7 @@ class TerminalView(private val host:MainActivity):View(host) {
     }
     override fun onDraw(canvas:Canvas) {
         super.onDraw(canvas)
+        updateLocale()
         scale=width/540f;if(scale<=0)return
         logicalHeight=height/scale
         val ink=Inks.get(host.prefs.getString("theme","phosphor"));canvas.drawColor(ink.bg)
@@ -117,10 +140,10 @@ class TerminalView(private val host:MainActivity):View(host) {
                 "art"->art(u,y,h)
                 "agenda"->calendarWidget.draw(u,16f,y,508f,h)
                 "media"->media(u,16f,y,508f,h)
-                "apps"->{u.text("↑ swipe up to search all apps",27f,y,20f,ink.dim);u.hit("search apps",16f,y,508f,48f){host.drawer(true)};drawApps(u,y+52,h-55)}
+                "apps"->{u.text(L10n.text(R.string.term_search_apps_hint),27f,y,20f,ink.dim);u.hit(L10n.text(R.string.term_search_apps),16f,y,508f,48f){host.drawer(true)};drawApps(u,y+52,h-55)}
                 "favorites"->{
-                    u.text("favorite apps",26f,y+10f,21f,ink.accent,328f)
-                    u.button("[ edit ]",369f,y,155f,40f){host.favorites.edit()}
+                    u.text(L10n.text(R.string.term_favorite_apps),26f,y+10f,21f,ink.accent,328f)
+                    u.button(L10n.text(R.string.term_edit_button),369f,y,155f,40f){host.favorites.edit()}
                     drawApps(u,y+55f,h-58f,host.favorites.entries(),favoritesPage=true)
                 }
                 "today"->{clock(u,y,h*.19f);calendar(u,16f,y+h*.22f,508f,h*.34f);calendarWidget.draw(u,16f,y+h*.59f,508f,h*.4f)}
@@ -135,79 +158,81 @@ class TerminalView(private val host:MainActivity):View(host) {
         targets=u.targets
         canvas.restoreToCount(saved)
         host.art.endFrame()
-        val description="Phosphor $page · ${pageIndex+1}/${pages.size}"
-        if(contentDescription!=description)contentDescription=description
+        if(accessibilityPage!=page||accessibilityIndex!=pageIndex||accessibilityCount!=pages.size){
+            accessibilityPage=page;accessibilityIndex=pageIndex;accessibilityCount=pages.size
+            contentDescription=L10n.text(R.string.term_page_accessibility,L10n.pageName(page),pageIndex+1,pages.size)
+        }
         if(running && isAttachedToWindow)postInvalidateDelayed(if(host.device.saver)250L else 66L)
     }
     private fun header(u:TerminalUi,page:String) {
         val d=host.device
         u.rect(0f,0f,540f,25f,TerminalUi.withAlpha(u.ink.faint,180))
-        u.text("◆ phosphor",10f,2f,20f/u.fontScale,u.ink.fg);u.text("~/$page",139f,2f,20f/u.fontScale,u.ink.dim,if(page=="dashboard")205f else 140f)
+        u.text("◆ phosphor",10f,2f,20f/u.fontScale,u.ink.fg);u.text("~/${L10n.pageName(page)}",139f,2f,20f/u.fontScale,u.ink.dim,if(page=="dashboard")205f else 140f)
         if(page!="dashboard")u.text(LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")),286f,2f,18f/u.fontScale,u.ink.fg,66f)
         u.text(d.networkName,359f,2f,18f/u.fontScale,u.ink.dim,62f)
         u.bar(428f,9f,42f,6f,d.batteryLevel/100f,u.ink.fg);u.text(if(d.batteryLevel>=0)"${d.batteryLevel}%" else "—",480f,2f,18f/u.fontScale,u.ink.fg)
-        u.hit("Phosphor settings",0f,0f,280f,32f){host.settings()}
-        u.hit("system settings",347f,0f,193f,32f){host.open(Intent(Settings.ACTION_SETTINGS))}
+        u.hit(L10n.text(R.string.term_settings),0f,0f,280f,32f){host.settings()}
+        u.hit(L10n.text(R.string.term_system_settings),347f,0f,193f,32f){host.open(Intent(Settings.ACTION_SETTINGS))}
     }
     private fun clock(u:TerminalUi,y:Float,h:Float) {
         val now=LocalDateTime.now();val is24=host.prefs.getBoolean("clock24",true)
         val value=now.format(DateTimeFormatter.ofPattern(if(is24)"HH:mm" else "hh:mm"))
         val clockH=min(120f,h*.61f);u.clock(value,52f,y+6f,405f,clockH,blinkColon=true,shadow=true)
         u.text(now.format(DateTimeFormatter.ofPattern("ss")),472f,y+clockH-21,20f,u.ink.accent)
-        if(!is24)u.text(if(now.hour<12)"am" else "pm",474f,y+20f,16f,u.ink.dim)
-        val date=now.format(DateTimeFormatter.ofPattern("EEE dd MMM yyyy",Locale.ENGLISH)).lowercase()
+        if(!is24)u.text(L10n.text(if(now.hour<12)R.string.term_am else R.string.term_pm),474f,y+20f,16f,u.ink.dim)
+        val date=now.format(dateFormatter).lowercase(L10n.locale)
         val week=now.get(java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear())
         u.text(date,88f,y+clockH+22f,20f/u.fontScale,u.ink.fg)
-        u.text("wk $week  day ${now.dayOfYear}",277f,y+clockH+22f,18f/u.fontScale,u.ink.dim,247f)
+        u.text(L10n.text(R.string.term_week_day,week,now.dayOfYear),277f,y+clockH+22f,18f/u.fontScale,u.ink.dim,247f)
         val rail=y+h-8;u.line(11f,rail,529f,rail,u.ink.dim,1.3f);u.line(11f,rail,11f+518*now.second/60f,rail,u.ink.accent,1.6f);u.dot(11f+518*now.second/60f,rail,2f,u.ink.bright)
         if(now.second<2){for(i in 0..11){val px=60f+(i*37.3f)%390;val py=y+clockH+((u.time%2)*25+i*3)%40;u.dot(px,py,.9f,TerminalUi.withAlpha(u.ink.dim,90))}}
-        u.hit("clock · alarms",16f,y,508f,h){host.open(Intent(AlarmClock.ACTION_SHOW_ALARMS))}
+        u.hit(L10n.text(R.string.term_clock_alarms),16f,y,508f,h){host.open(Intent(AlarmClock.ACTION_SHOW_ALARMS))}
     }
     private fun artScene(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
         val error=host.art.error
         if(error==null) {
             host.art.place((x*scale).roundToInt(),(y*scale).roundToInt(),(w*scale).roundToInt(),(h*scale).roundToInt())
         } else {
-            u.text("art unavailable",x+12,y+max(8f,h*.35f),20f,u.ink.fg,w-24)
+            u.text(L10n.text(R.string.term_art_unavailable),x+12,y+max(8f,h*.35f),20f,u.ink.fg,w-24)
             u.text(error,x+12,y+max(38f,h*.35f+30f),15f,u.ink.dim,w-24)
-            u.text("[ tap to retry ]",x+12,y+max(65f,h*.35f+58f),17f,u.ink.accent,w-24)
-            u.hit("retry ASCII art",x,y,w,h){host.art.retry()}
+            u.text(L10n.text(R.string.term_tap_retry),x+12,y+max(65f,h*.35f+58f),17f,u.ink.accent,w-24)
+            u.hit(L10n.text(R.string.term_retry_art),x,y,w,h){host.art.retry()}
         }
     }
     private fun art(u:TerminalUi,y:Float,h:Float) {
         val piece=host.art.selected
         val paused=host.prefs.getBoolean("ascii_paused",false)
         val mono=host.prefs.getBoolean("ascii_mono",false)
-        u.panel("ascii.rest",16f,y,508f,h,piece.category)
-        u.text(piece.name,30f,y+27f,24f,u.ink.bright,478f)
-        u.text(piece.note,30f,y+66f,16f,u.ink.dim,478f)
+        u.panel("ascii.rest",16f,y,508f,h,piece.displayCategory)
+        u.text(piece.displayName,30f,y+27f,24f,u.ink.bright,478f)
+        u.text(piece.displayNote,30f,y+66f,16f,u.ink.dim,478f)
         val top=y+100f;val imageHeight=max(24f,h-240f)
         artScene(u,28f,top,484f,imageHeight)
-        if(host.art.error==null)u.hit("choose ASCII artwork",28f,top,484f,imageHeight){host.chooseArt()}
-        u.text("[ choose artwork › ]",30f,y+h-122f,20f,u.ink.accent,478f)
-        u.hit("choose ASCII artwork",25f,y+h-130f,490f,44f){host.chooseArt()}
-        u.text(if(paused)"[ play ▶ ]" else "[ pause Ⅱ ]",30f,y+h-74f,20f,u.ink.fg,214f)
-        u.hit(if(paused)"play ASCII animation" else "pause ASCII animation",25f,y+h-82f,222f,44f){host.prefs.edit().putBoolean("ascii_paused",!paused).apply()}
-        u.text(if(mono)"[ launcher ink ]" else "[ original colors ]",260f,y+h-74f,18f,u.ink.fg,247f)
-        u.hit("ASCII colors · ${if(mono)"launcher ink" else "original palette"}",255f,y+h-82f,260f,44f){host.prefs.edit().putBoolean("ascii_mono",!mono).apply()}
-        u.text("offline · @bas3line · MIT",30f,y+h-27f,15f,u.ink.dim,478f)
-        u.hit("ASCII art settings",20f,y,500f,27f){host.artSettings()}
+        if(host.art.error==null)u.hit(L10n.text(R.string.term_choose_art),28f,top,484f,imageHeight){host.chooseArt()}
+        u.text(L10n.text(R.string.term_choose_art_button),30f,y+h-122f,20f,u.ink.accent,478f)
+        u.hit(L10n.text(R.string.term_choose_art),25f,y+h-130f,490f,44f){host.chooseArt()}
+        u.text(L10n.text(if(paused)R.string.term_play_button else R.string.term_pause_button),30f,y+h-74f,20f,u.ink.fg,214f)
+        u.hit(L10n.text(if(paused)R.string.term_play_art else R.string.term_pause_art),25f,y+h-82f,222f,44f){host.prefs.edit().putBoolean("ascii_paused",!paused).apply()}
+        u.text(L10n.text(if(mono)R.string.term_ink_button else R.string.term_original_button),260f,y+h-74f,18f,u.ink.fg,247f)
+        u.hit(L10n.text(R.string.term_art_colors,L10n.text(if(mono)R.string.term_ink_colors else R.string.term_original_colors)),255f,y+h-82f,260f,44f){host.prefs.edit().putBoolean("ascii_mono",!mono).apply()}
+        u.text(L10n.text(R.string.term_art_credits),30f,y+h-27f,15f,u.ink.dim,478f)
+        u.hit(L10n.text(R.string.term_art_settings),20f,y,500f,27f){host.artSettings()}
     }
     private fun zen(u:TerminalUi,y:Float,h:Float) {
         clock(u,y+h*.12f,h*.24f)
         if(host.prefs.getBoolean("ascii_zen",false)) {
             artScene(u,16f,y+h*.43f,508f,h*.42f)
-            if(host.art.error==null)u.hit("choose ASCII artwork",16f,y+h*.43f,508f,h*.42f){host.chooseArt()}
-            u.text(host.art.selected.name,26f,y+h*.89f,20f,u.ink.fg,488f)
-            u.text("[ ascii.rest · art settings › ]",26f,y+h*.95f,17f,u.ink.accent,488f)
-            u.hit("ASCII art settings",16f,y+h*.88f,508f,h*.11f){host.artSettings()}
+            if(host.art.error==null)u.hit(L10n.text(R.string.term_choose_art),16f,y+h*.43f,508f,h*.42f){host.chooseArt()}
+            u.text(host.art.selected.displayName,26f,y+h*.89f,20f,u.ink.fg,488f)
+            u.text(L10n.text(R.string.term_art_settings_button),26f,y+h*.95f,17f,u.ink.accent,488f)
+            u.hit(L10n.text(R.string.term_art_settings),16f,y+h*.88f,508f,h*.11f){host.artSettings()}
         } else {
-            SkyRenderer.draw(u,16f,y+h*.45f,508f,h*.42f,host.device.weather)
+            WeatherArtwork.draw(u,16f,y+h*.45f,508f,h*.42f,host.device.weather,WeatherArtStyle.fromKey(host.prefs.getString("weather_art",null)))
             val weather=host.device.weather
-            u.text(if(weather!=null)"${temp(weather.temperature)}° · ${SkyRenderer.description(weather.code)} · ${weather.city}" else "weather not configured",26f,y+h*.91f,18f,u.ink.dim,488f)
-            u.hit("configure weather",16f,y+h*.43f,508f,h*.51f){host.weatherSettings()}
-            u.text("[ use ascii.rest artwork › ]",26f,y+h*.96f,17f,u.ink.accent,488f)
-            u.hit("use ASCII artwork in Zen",16f,y+h*.95f,508f,h*.04f){host.prefs.edit().putBoolean("ascii_zen",true).apply();host.chooseArt()}
+            u.text(if(weather!=null)"${temp(weather.temperature)}° · ${SkyRenderer.description(weather.code)} · ${weather.city}" else L10n.text(R.string.term_weather_not_configured),26f,y+h*.91f,18f,u.ink.dim,488f)
+            u.hit(L10n.text(R.string.term_configure_weather),16f,y+h*.43f,508f,h*.51f){host.weatherSettings()}
+            u.text(L10n.text(R.string.term_use_art_button),26f,y+h*.96f,17f,u.ink.accent,488f)
+            u.hit(L10n.text(R.string.term_use_art_zen),16f,y+h*.95f,508f,h*.04f){host.prefs.edit().putBoolean("ascii_zen",true).apply();host.chooseArt()}
         }
     }
     private fun dashboard(u:TerminalUi,y:Float,h:Float) {
@@ -235,20 +260,20 @@ class TerminalView(private val host:MainActivity):View(host) {
         } else calendarWidget.draw(u,16f,logY,508f,max(56f,y+h-logY),compact=true)
     }
     private fun system(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
-        val d=host.device;u.panel("sys",x,y,w,h)
+        val d=host.device;u.panel(L10n.text(R.string.term_sys),x,y,w,h)
         val gap=min(26f,(h-28)/5);val bw=w*.54f
-        val rows=listOf(Triple("bat",d.batteryLevel/100f,if(d.batteryLevel>=0)"${d.batteryLevel}%" else "—"),Triple("mem",if(d.memoryTotal>0)d.memoryUsed.toFloat()/d.memoryTotal else 0f,if(d.memoryTotal>0)"${d.memoryUsed*100/d.memoryTotal}%" else "—"),Triple("dsk",if(d.storageTotal>0)d.storageUsed.toFloat()/d.storageTotal else 0f,if(d.storageTotal>0)"${d.storageUsed*100/d.storageTotal}%" else "—"))
+        val rows=listOf(Triple(L10n.text(R.string.term_bat),d.batteryLevel/100f,if(d.batteryLevel>=0)"${d.batteryLevel}%" else "—"),Triple(L10n.text(R.string.term_mem),if(d.memoryTotal>0)d.memoryUsed.toFloat()/d.memoryTotal else 0f,if(d.memoryTotal>0)"${d.memoryUsed*100/d.memoryTotal}%" else "—"),Triple(L10n.text(R.string.term_disk),if(d.storageTotal>0)d.storageUsed.toFloat()/d.storageTotal else 0f,if(d.storageTotal>0)"${d.storageUsed*100/d.storageTotal}%" else "—"))
         rows.forEachIndexed { i,r->val top=y+25+i*gap;u.text(r.first,x+7,top,18f,u.ink.dim);u.bar(x+51,top+7,bw,7f,r.second);u.text(r.third,x+w-55,top,18f,u.ink.fg,52f)}
         val ty=y+25+3*gap
-        val temperature=if(d.batteryTemp.isFinite())String.format(Locale.US,"%.1f°c",d.batteryTemp) else "—"
-        val voltage=if(d.batteryVoltage.isFinite())String.format(Locale.US,"%.2fv",d.batteryVoltage) else "—"
-        u.text("tmp $temperature",x+7,ty,18f,u.ink.dim,w*.64f);u.text(voltage,x+w-65,ty,18f,u.ink.dim)
-        val up=SystemClock.elapsedRealtime()/1000;u.text("up  ${up/3600}h ${up/60%60}m ${up%60}s",x+7,ty+gap,18f,u.ink.dim,w-14)
-        u.hit("system gauges",x,y,w,h){host.open(Intent(Settings.ACTION_SETTINGS))}
+        val temperature=if(d.batteryTemp.isFinite())String.format(L10n.locale,"%.1f°C",d.batteryTemp) else "—"
+        val voltage=if(d.batteryVoltage.isFinite())String.format(L10n.locale,"%.2fV",d.batteryVoltage) else "—"
+        u.text(L10n.text(R.string.term_temperature,temperature),x+7,ty,18f,u.ink.dim,w*.64f);u.text(voltage,x+w-65,ty,18f,u.ink.dim)
+        val up=SystemClock.elapsedRealtime()/1000;u.text(L10n.text(R.string.term_uptime,up/3600,up/60%60,up%60),x+7,ty+gap,18f,u.ink.dim,w-14)
+        u.hit(L10n.text(R.string.term_system_gauges),x,y,w,h){host.open(Intent(Settings.ACTION_SETTINGS))}
     }
-    private fun speed(n:Long):String=when{n<0->"—";n>=1024*1024->String.format(Locale.US,"%.1fM/s",n/1048576.0);n>=1024->"${n/1024}K/s";else->"${n}B/s"}
+    private fun speed(n:Long):String=when{n<0->"—";n>=1024*1024->L10n.text(R.string.term_speed_mb,n/1048576.0);n>=1024->L10n.text(R.string.term_speed_kb,n/1024);else->L10n.text(R.string.term_speed_bytes,n)}
     private fun net(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
-        val d=host.device;u.panel("net",x,y,w,h,d.networkName)
+        val d=host.device;u.panel(L10n.text(R.string.term_net),x,y,w,h,d.networkName)
         u.text("↓ ${speed(d.rxSpeed)}",x+6,y+25,18f,u.ink.fg,w*.52f);u.text("↑${speed(d.txSpeed)}",x+w*.60f,y+25,18f,u.ink.fg,w*.39f)
         val history=d.networkHistory;val peak=history.maxOfOrNull{max(it.first,it.second)}?:0L
         val gy=y+55;val gh=max(15f,h-85);val steps=max(1,history.size-1)
@@ -257,58 +282,97 @@ class TerminalView(private val host:MainActivity):View(host) {
             for(k in 0..(ry/4).toInt())u.dot(px,gy+gh-k*4,1f,u.ink.accent)
             if(ty>1)u.dot(px+1.5f,gy+gh-ty,1f,u.ink.fg)
         }
-        u.text("peak ${speed(peak)}",x+6,y+h-24,18f,u.ink.dim,w-12)
-        u.hit("internet panel",x,y,w,h){host.quick("internet")}
+        u.text(L10n.text(R.string.term_net_peak,speed(peak)),x+6,y+h-24,18f,u.ink.dim,w-12)
+        u.hit(L10n.text(R.string.term_internet_panel),x,y,w,h){host.quick("internet")}
     }
     private fun temp(n:Double):Int=(if(host.prefs.getString("units","c")=="f")n*1.8+32 else n).roundToInt()
     private fun weather(u:TerminalUi,x:Float,y:Float,w:Float,h:Float,large:Boolean) {
         val weather=host.device.weather
-        u.panel("wx",x,y,w,h,weather?.city?:host.prefs.getString("weather_city","")?.takeIf{it.isNotBlank()}?:"location off")
+        val style=WeatherArtStyle.fromKey(host.prefs.getString("weather_art",null))
+        u.panel(L10n.text(R.string.term_wx),x,y,w,h)
+        val city=weather?.city?:host.prefs.getString("weather_city","")?.takeIf{it.isNotBlank()}?:L10n.text(R.string.term_location_off)
+        u.text(city,x+86,y,18f,u.ink.dim,w-150)
+        val forest=style==WeatherArtStyle.FOREST_LAKE
+        val fg=if(forest)0xffe6efff.toInt() else u.ink.fg
+        val bright=if(forest)0xfff6fbff.toInt() else u.ink.bright
+        val dim=if(forest)0xffbad0e6.toInt() else u.ink.dim
+        val accent=if(forest)0xff9ed4ff.toInt() else u.ink.accent
+        if(forest){
+            WeatherArtwork.draw(u,x+8,y+24,w-16,max(1f,h-32),weather,style)
+            u.rect(x+8,y+24,w-16,100f,0x70040a12)
+        }
         if(weather==null){
-            SkyRenderer.draw(u,x+8,y+47,w-16,h-95,null)
-            u.rect(x+9,y+26,w-18,46f,u.ink.bg)
-            u.text(if(host.prefs.getString("weather_city","").isNullOrBlank())"weather not configured" else "forecast unavailable",x+16,y+29,20f,u.ink.fg,w-32)
-            u.text(host.device.weatherStatus,x+16,y+h-48,16f,u.ink.dim,w-32)
-            u.text("[ choose city / allow location ]",x+16,y+h-27,17f,u.ink.accent,w-32)
-            u.hit("configure weather",x,y,w,h){host.weatherSettings()};return
+            if(!forest)WeatherArtwork.draw(u,x+8,y+76,w-16,max(1f,h-130),null,style)
+            if(forest)u.rect(x+8,y+h-61,w-16,53f,0x80040a12.toInt()) else u.rect(x+9,y+26,w-18,46f,u.ink.bg)
+            u.text(L10n.text(if(host.prefs.getString("weather_city","").isNullOrBlank())R.string.term_weather_not_configured else R.string.term_forecast_unavailable),x+16,y+29,20f,fg,w-32)
+            u.text(host.device.weatherStatus,x+16,y+h-48,16f,dim,w-32)
+            u.text(L10n.text(R.string.term_choose_city_button),x+16,y+h-27,17f,accent,w-32)
+            u.hit(L10n.text(R.string.term_configure_weather),x,y,w,h){host.weatherSettings()}
+            weatherRefresh(u,x+w-54,y-12)
+            return
         }
         val infoH=if(large)120f else 100f
-        SkyRenderer.draw(u,x+8,y+28,w-16,h-83,weather)
-        u.rect(x+9,y+24,min(185f,w*.42f),infoH,u.ink.bg)
-        u.text(SkyRenderer.description(weather.code),x+17,y+26,18f,u.ink.bright,205f)
-        u.clock(abs(temp(weather.temperature)).toString(),x+17,y+49,85f,57f,u.ink.bright)
-        u.text(if(temp(weather.temperature)<0)"−" else "°${host.prefs.getString("units","c")}",x+109,y+55,20f,u.ink.accent)
-        u.text("feels ${temp(weather.feels)}°  ${weather.humidity}%",x+17,y+113,18f,u.ink.fg,220f)
-        val imperial=host.prefs.getString("units","c")=="f";val wind=(weather.wind*(if(imperial).621371 else 1.0)).roundToInt()
-        u.text("← ${wind}${if(imperial)"mph" else "kmh"}",x+17,y+135,18f,u.ink.dim)
-        val graphH=if(large)h*.22f else 40f;val graphY=y+h-graphH-57
-        val temps=weather.hourlyTemps;val low=temps.minOrNull()?:0.0;val high=temps.maxOrNull()?:low+1
-        temps.forEachIndexed{i,v->val gx=x+13+i*(w-50)/max(1,temps.lastIndex);val gy=graphY+graphH-((v-low)/max(1.0,high-low)*graphH).toFloat();u.dot(gx,gy,1.4f,u.ink.fg)
-            val rain=weather.hourlyRain.getOrElse(i){-1};if(rain>=0)u.line(gx,graphY+graphH,gx,graphY+graphH-graphH*rain/100f,u.ink.faint,3f)
-            if(i%3==0){val hour=weather.hourlyTimes.getOrNull(i)?.substringAfter('T')?.take(2)?:"";u.text(hour,gx-6,y+h-51,17f,u.ink.dim)}
-        }
-        u.text("${temp(high)}°",x+w-39,graphY-6,16f,u.ink.fg);u.text("${temp(low)}°",x+w-39,graphY+graphH-11,16f,u.ink.dim)
-        for(i in 0..2){val date=weather.dailyDates.getOrNull(i);val day=try{LocalDate.parse(date).format(DateTimeFormatter.ofPattern("EEE",Locale.ENGLISH)).lowercase()}catch(e:Exception){"—"}
-            u.text("$day ↑${weather.dailyHigh.getOrNull(i)?.let{temp(it)}?:"—"} ↓${weather.dailyLow.getOrNull(i)?.let{temp(it)}?:"—"}",x+8+i*(w-16)/3,y+h-27,17f,u.ink.fg,(w-16)/3)
+        if(forest)u.rect(x+8,y+h-40,w-16,32f,0x80040a12.toInt())
+        if(style==WeatherArtStyle.LANDSCAPE)SkyRenderer.draw(u,x+8,y+28,w-16,h-73,weather)
+        if(!forest)u.rect(x+9,y+24,min(185f,w*.42f),infoH,u.ink.bg)
+        u.text(SkyRenderer.description(weather.code),x+17,y+26,18f,bright,205f)
+        u.clock(abs(temp(weather.temperature)).toString(),x+17,y+49,85f,57f,bright)
+        u.text(if(temp(weather.temperature)<0)"−" else "°${host.prefs.getString("units","c")?.uppercase(Locale.ROOT)}",x+109,y+55,20f,accent)
+        u.text(L10n.text(R.string.term_weather_feels,temp(weather.feels),weather.humidity),if(forest)x+235 else x+17,if(forest)y+76 else y+113,18f,fg,if(forest)w-250 else 220f)
+        val imperial=host.prefs.getString("units","c")=="f"
+        val wind=(weather.wind*(if(imperial).621371 else 1.0)).roundToInt()
+        u.text(L10n.text(if(imperial)R.string.term_weather_wind_miles else R.string.term_weather_wind_km,wind),if(forest)x+235 else x+17,if(forest)y+100 else y+135,18f,dim)
+        if(style!=WeatherArtStyle.LANDSCAPE&&!forest)WeatherArtwork.draw(u,x+225,y+66,w-241,max(1f,h-116),weather,style)
+        for(i in 0..2){
+            val date=weather.dailyDates.getOrNull(i)
+            val day=try{LocalDate.parse(date).format(weekdayFormatter).lowercase(L10n.locale)}catch(e:Exception){"—"}
+            u.text("$day ↑${weather.dailyHigh.getOrNull(i)?.let{temp(it)}?:"—"} ↓${weather.dailyLow.getOrNull(i)?.let{temp(it)}?:"—"}",x+8+i*(w-16)/3,y+h-27,17f,fg,(w-16)/3)
         }
         val cached=System.currentTimeMillis()-weather.updated>3600000
-        u.text(weather.source,x+w-190,y+27,14f,u.ink.dim,110f)
-        if(cached)u.text("cached",x+w-70,y+27,12f,u.ink.warn,62f)
-        u.hit("weather settings and refresh",x,y,w,h){host.weatherSettings()}
+        if(weatherLabelTime!=weather.updated) {
+            weatherLabelTime=weather.updated
+            val stamp=WEATHER_TIME.format(Instant.ofEpochMilli(weather.updated).atZone(ZoneId.systemDefault()))
+            weatherUpdatedLabel=L10n.text(R.string.term_weather_updated,stamp)
+            weatherCachedLabel=L10n.text(R.string.term_weather_cached,stamp)
+        }
+        u.text(weather.source,x+w-260,y+28,14f,dim,250f)
+        val status=when {
+            host.device.weatherRefreshing->L10n.text(R.string.term_weather_refreshing)
+            host.device.weatherHasError->host.device.weatherStatus
+            cached->weatherCachedLabel
+            else->weatherUpdatedLabel
+        }
+        u.text(status,x+w-260,y+47,13f,if(cached&&!host.device.weatherRefreshing){if(forest)0xffffc46b.toInt() else u.ink.warn}else dim,250f)
+        u.hit(L10n.text(R.string.term_weather_settings),x,y,w,h){host.weatherSettings()}
+        weatherRefresh(u,x+w-54,y-12)
+    }
+    private fun weatherRefresh(u:TerminalUi,x:Float,y:Float) {
+        val loading=host.device.weatherRefreshing
+        val save=u.canvas.save()
+        if(loading)u.canvas.rotate(u.time*180f%360f,x+24,y+24)
+        val size=30f/u.fontScale
+        u.text("↻",x+(48-u.textWidth("↻",size))/2,y+9,size,if(loading)u.ink.dim else u.ink.accent)
+        u.canvas.restoreToCount(save)
+        u.hit(L10n.text(if(loading)R.string.term_refreshing_weather else R.string.term_refresh_weather),x,y,48f,48f){
+            if(!host.device.weatherRefreshing) {
+                if(!host.prefs.getBoolean("weather_enabled",true))host.weatherSettings() else host.device.refreshWeather()
+            }
+        }
     }
     private fun quick(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
-        val actions=quickNames();val d=host.device;u.panel("quick",x,y,w,h,"edit")
+        val actions=quickNames();val d=host.device;u.panel(L10n.text(R.string.term_quick),x,y,w,h,L10n.text(R.string.common_edit))
         val gap=min(25f,(h-30)/max(1,actions.size))
         actions.forEachIndexed{i,name->val state=when(name){"torch"->if(d.torch)"on" else "off";"wifi"->if(d.wifi)"on" else "off";"bluetooth"->if(d.bluetooth)"on" else "off";"sound"->when(d.sound){"sound"->"ring";"vibrate"->"vibr";"silent"->"mute";else->"—"};"do not disturb"->if(d.dnd)"on" else "off";"location"->if(d.location)"on" else "off";"battery saver"->if(d.saver)"on" else "off";else->"↗"}
             val yy=y+27+i*gap;val on=state!="off" && state!="mute" && state!="—"
-            u.text(if(on)"●" else "○",x+6,yy,16f,if(on)u.ink.accent else u.ink.dim);u.text(name,x+29,yy,18f,if(on)u.ink.fg else u.ink.dim,w-85);u.text(state,x+w-54,yy,18f,if(on)u.ink.accent else u.ink.dim,51f)
-            u.hit("$name $state",x+2,yy-2,w-4,gap){host.quick(name)}
+            val label=L10n.actionName(name);val stateLabel=L10n.valueName(state)
+            u.text(if(on)"●" else "○",x+6,yy,16f,if(on)u.ink.accent else u.ink.dim);u.text(label,x+29,yy,18f,if(on)u.ink.fg else u.ink.dim,w-85);u.text(stateLabel,x+w-54,yy,18f,if(on)u.ink.accent else u.ink.dim,51f)
+            u.hit(L10n.text(R.string.term_action_state,label,stateLabel),x+2,yy-2,w-4,gap){host.quick(name)}
         }
-        u.hit("edit quick actions",x+w-72,y-3,72f,28f){host.settings()}
+        u.hit(L10n.text(R.string.term_edit_quick),x+w-72,y-3,72f,28f){host.settings()}
     }
     private fun calendar(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
         val now=LocalDate.now();val month=now.withDayOfMonth(1);val first=month.dayOfWeek.value-1
-        u.panel(now.format(DateTimeFormatter.ofPattern("MMMM",Locale.ENGLISH)).lowercase(),x,y,w,h,now.year.toString())
+        u.panel(now.format(monthFormatter).lowercase(L10n.locale),x,y,w,h,now.year.toString())
         val inset=12f
         val cw=(w-inset*2)/7f
         val weeks=(first+month.lengthOfMonth()+6)/7
@@ -319,7 +383,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         val glyphH=textSize*u.fontScale
         val gridY=top+(available-rowH*(weeks+1))/2f
         for(i in 0..6){
-            val label=WEEKDAYS[i]
+            val label=weekdayLabels[i]
             val center=x+inset+(i+.5f)*cw
             u.text(label,center-u.textWidth(label,textSize)/2f,gridY+(rowH-glyphH)/2f,textSize,u.ink.dim,cw)
         }
@@ -339,30 +403,30 @@ class TerminalView(private val host:MainActivity):View(host) {
             u.text(label,center-labelW/2f,py,textSize,if(selected)u.ink.bg else if(idx%7>=5)u.ink.dim else u.ink.fg,cw)
             if(busy)u.dot(center+labelW/2f+3f,py+glyphH*.8f,1.5f,if(selected)u.ink.bg else u.ink.accent)
         }
-        u.hit("open calendar",x,y,w,h){host.open(Intent(Intent.ACTION_VIEW,Uri.parse("content://com.android.calendar/time/${System.currentTimeMillis()}")))}
+        u.hit(L10n.text(R.string.term_open_calendar),x,y,w,h){host.open(Intent(Intent.ACTION_VIEW,Uri.parse("content://com.android.calendar/time/${System.currentTimeMillis()}")))}
     }
     private fun log(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
         val notices=host.device.notifications
-        u.panel("notifications ${notices.size}",x,y,w,h,"agenda")
-        u.hit("open agenda page",x+w-113,y-2,113f,28f){val p=host.pages();val i=p.indexOf("agenda");if(i>=0)pageIndex=i else host.open(Intent(Intent.ACTION_VIEW,Uri.parse("content://com.android.calendar/time/${System.currentTimeMillis()}")));invalidate()}
+        u.panel(L10n.text(R.string.term_notifications,notices.size),x,y,w,h,L10n.pageName("agenda"))
+        u.hit(L10n.text(R.string.term_open_agenda),x+w-113,y-2,113f,28f){val p=host.pages();val i=p.indexOf("agenda");if(i>=0)pageIndex=i else host.open(Intent(Intent.ACTION_VIEW,Uri.parse("content://com.android.calendar/time/${System.currentTimeMillis()}")));invalidate()}
         val lines=max(0,((h-33)/24).toInt())
         if(notices.isEmpty()){
             val enabled=Settings.Secure.getString(context.contentResolver,"enabled_notification_listeners")?.contains(context.packageName)==true
-            if(!enabled){u.text("notification access is off",x+9,y+29,18f,u.ink.dim,w-18);if(h>74)u.text("[ enable notifications + media ]",x+9,y+54,17f,u.ink.accent,w-18);u.hit("enable notification access",x,y+23,w,h-23){host.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))}}
-            else {u.text("no notifications · all quiet",x+9,y+29,18f,u.ink.dim,w-18);if(h>90)scope(u,x+10,y+65,w-20,h-75)}
+            if(!enabled){u.text(L10n.text(R.string.term_notifications_off),x+9,y+29,18f,u.ink.dim,w-18);if(h>74)u.text(L10n.text(R.string.term_enable_notifications_button),x+9,y+54,17f,u.ink.accent,w-18);u.hit(L10n.text(R.string.term_enable_notifications),x,y+23,w,h-23){host.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))}}
+            else {u.text(L10n.text(R.string.term_no_notifications),x+9,y+29,18f,u.ink.dim,w-18);if(h>90)scope(u,x+10,y+65,w-20,h-75)}
         }else for(i in 0 until min(lines,notices.size)){
             val n=notices[i];val yy=y+28+i*24;val hour=Instant.ofEpochMilli(n.time).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))
             val message=if(n.title.isNotEmpty())"${n.title}: ${n.text}" else n.text
             val typed=((System.currentTimeMillis()-n.time).coerceAtLeast(0)/22).coerceAtMost(message.length.toLong()).toInt()
             u.text(hour,x+7,yy,17f,u.ink.dim);u.text(n.app.lowercase(),x+73,yy,17f,u.ink.accent,113f);u.text(message.take(typed),x+197,yy,17f,u.ink.fg,w-204)
-            u.hit("${n.app}: ${n.title} ${n.text}",x+3,yy-2,w-6,24f,hold={host.choose(n.app,listOf("open","dismiss")){if(it==0)openNotice(n) else host.device.dismissNotice(n.key)}}){openNotice(n)}
+            u.hit("${n.app}: ${n.title} ${n.text}",x+3,yy-2,w-6,24f,hold={host.choose(n.app,listOf(L10n.text(R.string.term_open),L10n.text(R.string.term_dismiss))){if(it==0)openNotice(n) else host.device.dismissNotice(n.key)}}){openNotice(n)}
         }
     }
-    private fun openNotice(n:Notice){if(!NotificationBridge.open(n.key))host.toast("This notification has no available action")}
+    private fun openNotice(n:Notice){if(!NotificationBridge.open(n.key))host.toast(L10n.text(R.string.term_notice_no_action))}
     private fun scope(u:TerminalUi,x:Float,y:Float,w:Float,h:Float){var previous=y+h/2;for(i in 0..(w/3).toInt()){val xx=x+i*3;val v=y+h/2+sin(i*.12f+u.time)*h*.18f*sin(i*.03f-u.time*.4f);if(i>0)u.line(xx-3,previous,xx,v,u.ink.dim);previous=v}}
     private fun media(u:TerminalUi,x:Float,y:Float,w:Float,h:Float) {
-        val media=host.device.media;u.panel("media",x,y,w,h,if(media?.playing==true)"playing" else "paused")
-        if(media==null){u.text("nothing playing",x+17,y+43,22f,u.ink.dim);u.text("enable notification access for media",x+17,y+79,17f,u.ink.dim,w-34);u.hit("media notification access",x,y,w,h){host.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))};return}
+        val media=host.device.media;u.panel(L10n.pageName("media"),x,y,w,h,L10n.text(if(media?.playing==true)R.string.term_playing else R.string.term_paused))
+        if(media==null){u.text(L10n.text(R.string.term_nothing_playing),x+17,y+43,22f,u.ink.dim,w-34);u.text(L10n.text(R.string.term_enable_media),x+17,y+79,17f,u.ink.dim,w-34);u.hit(L10n.text(R.string.term_media_access),x,y,w,h){host.open(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))};return}
         val large=h>300;val center=y+if(large)h*.4f else 31f
         if(large)for(i in 0..20){val level=if(media.playing)(.3f+.7f*abs(sin(i*.9f+u.time*(i%3+2)))) else .08f;for(j in 0..(level*25).toInt())u.rect(x+21+i*(w-42)/21,y+h*.34f-j*5,8f,3f,if(j>19)u.ink.fg else u.ink.accent)}
         u.text(media.title,x+17,center,if(large)25f else 20f,u.ink.bright,w-34);u.text(media.artist,x+17,center+30,18f,u.ink.dim,w-34)
@@ -370,7 +434,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         u.bar(x+17,barY,w-34,4f,if(media.duration>0)media.position.toFloat()/media.duration else 0f)
         val by=if(large)y+h*.75f else y+h-34
         val labels=listOf("|◀",if(media.playing)"Ⅱ" else "▶","▶|");val actions=listOf("previous","toggle","next")
-        labels.forEachIndexed{i,s->val bx=x+w*(.16f+i*.27f);u.text("[ $s ]",bx,by,22f,u.ink.fg);u.hit("media ${actions[i]}",bx-10,by-8,w*.24f,44f){host.device.mediaAction(actions[i])}}
+        labels.forEachIndexed{i,s->val bx=x+w*(.16f+i*.27f);u.text("[ $s ]",bx,by,22f,u.ink.fg);u.hit(L10n.text(when(i){0->R.string.term_media_previous;1->R.string.term_media_toggle;else->R.string.term_media_next}),bx-10,by-8,w*.24f,44f){host.device.mediaAction(actions[i])}}
     }
     private fun footer(u:TerminalUi) {
         val y=logicalHeight-31
@@ -380,7 +444,7 @@ class TerminalView(private val host:MainActivity):View(host) {
             val x=16+i*cell
             val label=app?.let{host.dock.displayName(it)}
             u.text(label?:"+",x+5,y,18f,if(app!=null)u.ink.fg else u.ink.dim,cell-10)
-            u.hit(label?.let{"open $it"}?:"choose dock slot ${i+1}",x,y-5,cell,34f,hold={host.dock.chooseSlot(i)}){
+            u.hit(label?.let{L10n.text(R.string.term_open_app,it)}?:L10n.text(R.string.term_choose_dock,i+1),x,y-5,cell,34f,hold={host.dock.chooseSlot(i)}){
                 if(app==null)host.dock.chooseSlot(i) else {host.drawer(false);host.device.launch(app)}
             }
         }
@@ -400,9 +464,9 @@ class TerminalView(private val host:MainActivity):View(host) {
         scrollOffset=scrollOffset.coerceIn(0f,maxListScroll)
         val saved=u.canvas.save();u.canvas.clipRect(16f,y,524f,y+h)
         if(list.isEmpty()){
-            u.text(if(favoritesPage)"no favorites yet" else "no matching apps",29f,y+20,20f,u.ink.dim)
-            if(favoritesPage)u.button("[ choose apps ]",26f,y+63,488f){host.favorites.edit()}
-            else u.button("[ search the web ]",26f,y+63,488f){webSearch()}
+            u.text(L10n.text(if(favoritesPage)R.string.term_no_favorites else R.string.term_no_matching_apps),29f,y+20,20f,u.ink.dim,482f)
+            if(favoritesPage)u.button(L10n.text(R.string.term_choose_apps_button),26f,y+63,488f){host.favorites.edit()}
+            else u.button(L10n.text(R.string.term_web_search_button),26f,y+63,488f){webSearch()}
         } else {
             val first=(scrollOffset/rowH).toInt().coerceAtLeast(0)
             val last=((scrollOffset+h)/rowH).toInt().coerceAtMost(list.lastIndex)
@@ -416,11 +480,11 @@ class TerminalView(private val host:MainActivity):View(host) {
                 iconBounds.set(28f,iconY,28f+iconSize,iconY+iconSize)
                 u.canvas.drawBitmap(app.icon,null,iconBounds,iconPaint)
                 u.text(app.label.lowercase(),labelX,yy+13*u.fontScale,21f,u.ink.fg,512f-labelX)
-                if(yy>=y&&yy+rowH<=y+h)u.hit("app ${app.label}",16f,yy,508f,rowH,hold={host.appMenu(app)}){host.drawer(false);host.device.launch(app)}
+                if(yy>=y&&yy+rowH<=y+h)u.hit(L10n.text(R.string.term_app_accessibility,app.label),16f,yy,508f,rowH,hold={host.appMenu(app)}){host.drawer(false);host.device.launch(app)}
             }
         }
         u.canvas.restoreToCount(saved)
-        u.text("${list.size} apps",400f,30f,15f,u.ink.dim,124f)
+        u.text(L10n.text(R.string.term_app_count,list.size),350f,30f,15f/u.fontScale,u.ink.dim,174f)
     }
     fun launchFirst(){val first=appMatches().firstOrNull();if(first!=null){host.drawer(false);host.device.launch(first)} else webSearch()}
     private fun webSearch(){val q=query.trim();if(q.isEmpty())return;host.drawer(false);host.open(Intent(Intent.ACTION_VIEW,Uri.parse("https://www.google.com/search?q=${Uri.encode(q)}")))}
@@ -526,6 +590,6 @@ class TerminalView(private val host:MainActivity):View(host) {
         override fun performAction(id:Int,action:Int,args:Bundle?):Boolean { if(host.isChangingPage)return false;val target=targets.getOrNull(id-1)?:return false;return when(action){AccessibilityNodeInfo.ACTION_CLICK->{target.click();sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_CLICKED);true};AccessibilityNodeInfo.ACTION_LONG_CLICK->{target.hold?.invoke();true};AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS->{sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);true};else->false} }
     }
     private companion object {
-        val WEEKDAYS=arrayOf("mo","tu","we","th","fr","sa","su")
+        val WEATHER_TIME:DateTimeFormatter=DateTimeFormatter.ofPattern("HH:mm")
     }
 }

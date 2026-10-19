@@ -9,7 +9,6 @@ import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -23,8 +22,16 @@ class PhosphorWallpaper:WallpaperService() {
         // Snapshots are consumed by the capped frame loop, not rendered for each sensor callback.
         private val device=DeviceRepository(this@PhosphorWallpaper){}
         private val crtEffect=CrtEffect()
+        private val clock24Format=DateTimeFormatter.ofPattern("HH:mm")
+        private val clock12Format=DateTimeFormatter.ofPattern("hh:mm")
+        private var dateLocale=L10n.locale
+        private var dateFormat=DateTimeFormatter.ofPattern("EEE dd MMM yyyy",dateLocale)
         private val tick=object:Runnable{override fun run(){if(visible&&ready){draw();handler.postDelayed(this,if(!prefs.getBoolean("lockClock",true)&&getSystemService(PowerManager::class.java).isPowerSaveMode)1000L else 500L)}}}
-        private val listener=SharedPreferences.OnSharedPreferenceChangeListener{_,key->if(visible&&ready)draw();if(android.os.Build.VERSION.SDK_INT>=27&&(key=="theme"||key=="lockTheme"))notifyColorsChanged()}
+        private val listener=SharedPreferences.OnSharedPreferenceChangeListener{_,key->
+            if(key==null||key=="language")L10n.refresh()
+            if(visible&&ready)draw()
+            if(android.os.Build.VERSION.SDK_INT>=27&&(key=="theme"||key=="lockTheme"))notifyColorsChanged()
+        }
         override fun onCreate(holder:SurfaceHolder){super.onCreate(holder);prefs.registerOnSharedPreferenceChangeListener(listener)}
         override fun onVisibilityChanged(value:Boolean){visible=value;handler.removeCallbacks(tick);if(value){device.start();handler.post(tick)}else device.stop()}
         override fun onSurfaceCreated(holder:SurfaceHolder){super.onSurfaceCreated(holder);ready=true;if(visible)handler.post(tick)}
@@ -52,19 +59,28 @@ class PhosphorWallpaper:WallpaperService() {
                 // System clock and notifications own the top third; never pretend to replace them.
                 val now=LocalDateTime.now();val clockY=h*.44f
                 if(prefs.getBoolean("lockClock",true)){
-                    u.text("◆ phosphor  ~/lock",28f,clockY-44,19f,ink.dim)
-                    u.clock(now.format(DateTimeFormatter.ofPattern(if(prefs.getBoolean("clock24",true))"HH:mm" else "hh:mm")),45f,clockY,450f,133f,blinkColon=true,shadow=true)
-                    u.text(now.format(DateTimeFormatter.ofPattern("EEE dd MMM yyyy",Locale.ENGLISH)).lowercase(),143f,clockY+154,20f,ink.fg)
+                    u.text(L10n.text(R.string.platform_lock_heading),28f,clockY-44,19f,ink.dim)
+                    u.clock(now.format(if(prefs.getBoolean("clock24",true))clock24Format else clock12Format),45f,clockY,450f,133f,blinkColon=true,shadow=true)
+                    if(dateLocale!=L10n.locale){dateLocale=L10n.locale;dateFormat=DateTimeFormatter.ofPattern("EEE dd MMM yyyy",dateLocale)}
+                    u.text(now.format(dateFormat).lowercase(dateLocale),143f,clockY+154,20f,ink.fg)
                 }
                 val rows=ArrayList<String>()
-                if(prefs.getBoolean("lockWeather",true)){val w=device.weather;rows.add(if(w!=null){val f=prefs.getString("units","c")=="f";val temp=(if(f)w.temperature*1.8+32 else w.temperature).roundToInt();"wx  $temp°${if(f)"f" else "c"} · ${SkyRenderer.description(w.code)} · ${w.city}"}else "wx  ${device.weatherStatus}")}
-                if(prefs.getBoolean("lockBattery",true))rows.add("bat ${if(device.batteryLevel>=0)"${device.batteryLevel}%" else "unavailable"} · ${if(device.charging)"charging" else "on battery"}")
-                if(prefs.getBoolean("lockEvent",true))rows.add("cal ${device.events.firstOrNull()?.title?:"no upcoming event"}")
-                if(prefs.getBoolean("lockNotifications",true))rows.add("log ${device.notifications.size} notifications")
+                if(prefs.getBoolean("lockWeather",true)){
+                    val w=device.weather
+                    val value=if(w!=null){
+                        val f=prefs.getString("units","c")=="f"
+                        val temp=(if(f)w.temperature*1.8+32 else w.temperature).roundToInt()
+                        L10n.text(R.string.platform_lock_weather_value,temp,L10n.text(if(f)R.string.platform_lock_fahrenheit else R.string.platform_lock_celsius),SkyRenderer.description(w.code),w.city)
+                    }else device.weatherStatus
+                    rows.add(L10n.text(R.string.platform_lock_weather,value))
+                }
+                if(prefs.getBoolean("lockBattery",true))rows.add(L10n.text(R.string.platform_lock_battery,if(device.batteryLevel>=0)"${device.batteryLevel}%" else L10n.text(R.string.common_unavailable),L10n.text(if(device.charging)R.string.platform_lock_charging else R.string.platform_lock_on_battery)))
+                if(prefs.getBoolean("lockEvent",true))rows.add(L10n.text(R.string.platform_lock_event,device.events.firstOrNull()?.title?:L10n.text(R.string.platform_lock_no_event)))
+                if(prefs.getBoolean("lockNotifications",true))rows.add(L10n.text(R.string.platform_lock_notifications,device.notifications.size))
                 val py=clockY+211;val ph=40f+rows.size*34
-                if(rows.isNotEmpty()){u.panel("status",25f,py,490f,ph);rows.forEachIndexed{i,s->u.text(s,40f,py+30+i*34,19f,if(i==0)ink.fg else ink.dim,460f)}}
+                if(rows.isNotEmpty()){u.panel(L10n.text(R.string.platform_lock_status),25f,py,490f,ph);rows.forEachIndexed{i,s->u.text(s,40f,py+30+i*34,19f,if(i==0)ink.fg else ink.dim,460f)}}
                 val bottom=min(h-80,py+ph+56)
-                u.text("> unlock to continue${if(now.second%2==0)" █" else ""}",36f,bottom,19f,ink.accent,468f)
+                u.text(L10n.text(R.string.platform_lock_unlock)+if(now.second%2==0)" █" else "",36f,bottom,19f,ink.accent,468f)
                 if(prefs.getBoolean("crt",true))crtEffect.draw(u)
             }finally{holder.unlockCanvasAndPost(canvas)}
         }

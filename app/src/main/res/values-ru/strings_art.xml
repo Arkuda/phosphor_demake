@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="art_style_landscape">Пейзаж</string>
+    <string name="art_style_terminal">Терминальные значки</string>
+    <string name="art_style_postcard">ASCII-открытка</string>
+    <string name="art_style_orbital">Орбитальный циферблат</string>
+    <string name="art_style_forest_lake">Лесное озеро</string>
+    <string name="art_weather_day">ДЕНЬ</string>
+    <string name="art_weather_night">НОЧЬ</string>
+    <string name="art_weather_clear">ЯСНО</string>
+    <string name="art_weather_partly">ПЕРЕМЕННАЯ ОБЛАЧНОСТЬ</string>
+    <string name="art_weather_cloudy">ПАСМУРНО</string>
+    <string name="art_weather_fog">ТУМАН</string>
+    <string name="art_weather_drizzle">МОРОСЬ</string>
+    <string name="art_weather_rain">ДОЖДЬ</string>
+    <string name="art_weather_snow">СНЕГ</string>
+    <string name="art_weather_thunder">ГРОЗА</string>
+    <string name="art_weather_unknown">НЕТ ДАННЫХ</string>
+    <string name="art_catalogue_unavailable">Каталог иллюстраций недоступен: %1$s</string>
+    <string name="art_empty_catalogue">Каталог иллюстраций пуст</string>
+    <string name="art_script_error">Ошибка скрипта иллюстрации: %1$s</string>
+    <string name="art_webview_unavailable">WebView для иллюстраций недоступен: %1$s</string>
+    <string name="art_asset_unavailable">Файл иллюстрации недоступен: %1$s</string>
+    <string name="art_navigation_blocked">Переход со страницы иллюстрации заблокирован</string>
+    <string name="art_load_failed">Не удалось загрузить иллюстрацию: %1$s</string>
+    <string name="art_connection_blocked">Соединение иллюстрации заблокировано</string>
+    <string name="art_renderer_crashed">Сбой отрисовки иллюстрации; повторите загрузку</string>
+    <string name="art_renderer_stopped">Отрисовка иллюстрации остановлена; повторите загрузку</string>
+    <string name="art_player_failed">Ошибка проигрывателя иллюстраций: %1$s</string>
+    <string name="art_initialization_failed">Не удалось инициализировать иллюстрацию: %1$s</string>
+    <string name="art_player_unavailable">Проигрыватель иллюстраций недоступен: %1$s</string>
+    <string name="art_not_initialized">Локальный проигрыватель иллюстраций не инициализирован</string>
+    <string name="art_invalid_status">Некорректное состояние проигрывателя иллюстраций</string>
+    <string name="art_no_status">Проигрыватель иллюстраций не вернул состояние</string>
+</resources>

@@ -47,10 +47,10 @@ class Favorites(private val host: MainActivity) {
     fun edit() {
         load()
         if (host.device.apps.isEmpty()) {
-            host.toast("Apps are still loading")
+            host.toast(L10n.text(R.string.menus_apps_loading))
             return
         }
-        host.pickApps("favorite apps", keys) { selected -> save(selected) }
+        host.pickApps(L10n.text(R.string.menus_favorite_apps), keys) { selected -> save(selected) }
     }
 
     private fun save(next: List<String>) {

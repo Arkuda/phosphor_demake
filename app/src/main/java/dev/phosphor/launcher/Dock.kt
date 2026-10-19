@@ -52,13 +52,13 @@ class Dock(private val host: MainActivity) {
 
     fun settings() {
         val current = entries()
-        host.choose("dock apps · five ordered slots", current.mapIndexed { index, app ->
-            "${index + 1} · ${app?.let(::displayName) ?: "empty"}"
-        } + "reset to defaults") { index ->
+        host.choose(L10n.text(R.string.menus_dock_title), current.mapIndexed { index, app ->
+            "${index + 1} · ${app?.let(::displayName) ?: L10n.text(R.string.common_empty)}"
+        } + L10n.text(R.string.menus_reset_defaults)) { index ->
             if (index < SLOT_COUNT) chooseSlot(index)
             else {
                 val apps = host.device.apps
-                if (apps.isEmpty()) host.toast("Apps are still loading")
+                if (apps.isEmpty()) host.toast(L10n.text(R.string.menus_apps_loading))
                 else {
                     host.prefs.edit().remove(NAME_KEY).apply()
                     save(defaults(apps))
@@ -74,10 +74,10 @@ class Dock(private val host: MainActivity) {
             pickSlot(index)
             return
         }
-        host.choose("dock ${index + 1} · ${displayName(app)}", listOf("choose app", "rename label", "empty slot")) { action ->
+        host.choose(L10n.text(R.string.menus_dock_slot_title,index+1,displayName(app)), listOf(L10n.text(R.string.menus_choose_app),L10n.text(R.string.menus_rename_label),L10n.text(R.string.menus_empty_slot))) { action ->
             when (action) {
                 0 -> pickSlot(index)
-                1 -> host.inputLine("dock label", displayName(app), "Blank = ${app.label}") { value ->
+                1 -> host.inputLine(L10n.text(R.string.menus_dock_label), displayName(app), L10n.text(R.string.menus_blank_label,app.label)) { value ->
                     val names = runCatching { JSONObject(host.prefs.getString(NAME_KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
                     val key = app.component.flattenToString()
                     val label = value.trim()
@@ -92,7 +92,7 @@ class Dock(private val host: MainActivity) {
 
     private fun pickSlot(index: Int) {
         val current = entries()
-        host.pickApp("dock slot ${index + 1}", current[index], allowEmpty = true) { app ->
+        host.pickApp(L10n.text(R.string.menus_dock_slot,index+1), current[index], allowEmpty = true) { app ->
             assign(index, app?.component?.flattenToString())
         }
     }
@@ -112,8 +112,8 @@ class Dock(private val host: MainActivity) {
         }
         val empty = current.indexOfFirst { it == null }
         if (empty >= 0) assign(empty, key)
-        else host.choose("pin ${app.label} · replace slot", current.mapIndexed { index, entry ->
-            "${index + 1} · ${entry?.let(::displayName) ?: "empty"}"
+        else host.choose(L10n.text(R.string.menus_replace_slot,app.label), current.mapIndexed { index, entry ->
+            "${index + 1} · ${entry?.let(::displayName) ?: L10n.text(R.string.common_empty)}"
         }) { index -> assign(index, key) }
     }
 
