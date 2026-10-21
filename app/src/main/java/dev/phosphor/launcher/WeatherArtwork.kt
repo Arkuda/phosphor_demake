@@ -8,7 +8,8 @@ enum class WeatherArtStyle(val key: String, private val labelResource: Int) {
     TERMINAL("terminal", R.string.art_style_terminal),
     POSTCARD("postcard", R.string.art_style_postcard),
     ORBITAL("orbital", R.string.art_style_orbital),
-    FOREST_LAKE("forest_lake", R.string.art_style_forest_lake);
+    FOREST_LAKE("forest_lake", R.string.art_style_forest_lake),
+    FOREST_LAKE_TRUE_ASCII("forest_lake_true_ascii", R.string.art_style_forest_lake_true_ascii);
 
     val label: String get() = L10n.text(labelResource)
 
@@ -18,6 +19,7 @@ enum class WeatherArtStyle(val key: String, private val labelResource: Int) {
             POSTCARD.key -> POSTCARD
             ORBITAL.key -> ORBITAL
             FOREST_LAKE.key -> FOREST_LAKE
+            FOREST_LAKE_TRUE_ASCII.key -> FOREST_LAKE_TRUE_ASCII
             else -> LANDSCAPE
         }
     }
@@ -121,6 +123,10 @@ object WeatherArtwork {
             ForestLakeRenderer.draw(u, x, y, w, h, weather)
             return
         }
+        if (style == WeatherArtStyle.FOREST_LAKE_TRUE_ASCII) {
+            ForestLakeTrueAsciiRenderer.draw(u, x, y, w, h, weather)
+            return
+        }
         val condition = condition(weather?.code)
         val night = weather?.isDay == false
         val columns = when (style) {
@@ -209,7 +215,7 @@ object WeatherArtwork {
                 val caption = condition.caption
                 text(u, caption, (23 - caption.length) / 2f, 10, cell, line, baseline, u.ink.fg)
             }
-            WeatherArtStyle.LANDSCAPE, WeatherArtStyle.FOREST_LAKE -> Unit
+            WeatherArtStyle.LANDSCAPE, WeatherArtStyle.FOREST_LAKE, WeatherArtStyle.FOREST_LAKE_TRUE_ASCII -> Unit
         }
         c.restoreToCount(save)
     }

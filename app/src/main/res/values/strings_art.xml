@@ -5,6 +5,7 @@
     <string name="art_style_postcard">ASCII postcard</string>
     <string name="art_style_orbital">Orbital dial</string>
     <string name="art_style_forest_lake">Forest lake</string>
+    <string name="art_style_forest_lake_true_ascii">Forest lake true-ascii</string>
     <string name="art_weather_day">DAY</string>
     <string name="art_weather_night">NIGHT</string>
     <string name="art_weather_clear">CLEAR</string>

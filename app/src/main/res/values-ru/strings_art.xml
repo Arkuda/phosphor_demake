@@ -5,6 +5,7 @@
     <string name="art_style_postcard">ASCII-открытка</string>
     <string name="art_style_orbital">Орбитальный циферблат</string>
     <string name="art_style_forest_lake">Лесное озеро</string>
+    <string name="art_style_forest_lake_true_ascii">Лесное озеро true-ascii</string>
     <string name="art_weather_day">ДЕНЬ</string>
     <string name="art_weather_night">НОЧЬ</string>
     <string name="art_weather_clear">ЯСНО</string>

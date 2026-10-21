@@ -292,7 +292,7 @@ class TerminalView(private val host:MainActivity):View(host) {
         u.panel(L10n.text(R.string.term_wx),x,y,w,h)
         val city=weather?.city?:host.prefs.getString("weather_city","")?.takeIf{it.isNotBlank()}?:L10n.text(R.string.term_location_off)
         u.text(city,x+86,y,18f,u.ink.dim,w-150)
-        val forest=style==WeatherArtStyle.FOREST_LAKE
+        val forest=style==WeatherArtStyle.FOREST_LAKE || style==WeatherArtStyle.FOREST_LAKE_TRUE_ASCII
         val fg=if(forest)0xffe6efff.toInt() else u.ink.fg
         val bright=if(forest)0xfff6fbff.toInt() else u.ink.bright
         val dim=if(forest)0xffbad0e6.toInt() else u.ink.dim
