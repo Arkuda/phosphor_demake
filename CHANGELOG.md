@@ -1,8 +1,17 @@
 # Phosphor — independent Android implementation
 
+## 1.7.1 — restore the actual 1.6.0 forest
+
+- Fixed the ordinary **Forest lake / Лесное озеро**: 1.7 mistakenly shipped an intermediate collage-based renderer instead of the original published 1.6.0 artwork. Restored `ForestLakeRenderer.kt` directly from tag `v1.6.0`, retaining its procedural scenery, colors, proportions and weather animation.
+- Left **Forest lake true-ascii** unchanged. Both preference keys and the six-choice menu remain intact; no selection migration or data reset.
+- Removed the now-unused intermediate FLA2 asset and its converter. Ordinary Forest lake needs no external image asset; true-ascii retains its existing PNG manifest and references.
+- Bumped Android version to 1.7.1 / versionCode 9, signed with the existing update certificate.
+
+**Verified against published APKs:** on the same Android 16/API 36 emulator, 20 ordinary-forest frames in the hotfix matched the downloaded 1.6.0 APK pixel-for-pixel, and 20 true-ascii frames matched the downloaded 1.7.0 APK pixel-for-pixel. Comparisons cover five conditions, two aspect ratios and two animation times; every condition still animates. Actual 1.7 → 1.7.1 installation preserved note, theme, language, page order and `forest_lake` selection. Both styles were selected and inspected on the real home surface; AndroidRuntime output was empty and no ANR occurred. [Restored original](captures/hotfix-1.7.1-original-home.png), [unchanged true-ascii](captures/hotfix-1.7.1-true-ascii-home.png).
+
 ## 1.7 — separate Forest lake styles
 
-- Kept the original **Forest lake / Лесное озеро** under its unchanged `forest_lake` preference key. Restored its original renderer and byte-identical FLA2 collage asset; `scripts/build-weather-legacy-ascii.py` rebuilds that asset independently.
+- Shipped an intermediate collage-based **Forest lake / Лесное озеро** under `forest_lake`. This was not the published 1.6.0 renderer; corrected in 1.7.1.
 - Added the generated artwork as a separate sixth option, **Forest lake true-ascii / Лесное озеро true-ascii**, with the independent `forest_lake_true_ascii` key and `ForestLakeTrueAsciiRenderer`. Existing selections are not migrated. Both styles retain full-card weather layout and apply to home, weather and Zen.
 
 **1.7 release upgrade:** `versionCode 8` uses the same signing certificate as the downloaded published 1.6.0 APK. Actual Android 16 installation with `install -r` preserved a multiline Russian note, amber theme, language, page order and original `forest_lake` selection. The new style was selected through the real six-choice menu afterward. The release smoke reported no AndroidRuntime errors or ANR. [Preserved note](captures/release-1.7-upgrade-notes.png), [style selector](captures/release-1.7-weather-styles.png), [true-ascii after upgrade](captures/release-1.7-true-ascii-home.png).
@@ -18,7 +27,7 @@
 
 **Exercised:** debug APK built/installed on disposable Android 16/API 36. All five scenes animated in 768×432, 640×640, 420×760 and 900×300 native viewports, with complete fill, outside clipping, expected format selection, cached-raster reuse and matching paper/phosphor pixels. Native-size static-cache RGB exactly matched the packaged PNG. An isolated rain-water pass changed 32,281 pixels between sampled times and painted no dry-mask pixels; isolated snowfall and solar-water glints moved. Inspected actual 720×1280 home, all five weather pages, Zen and paper/XL, plus 1080×2340 home/weather. Default packaging matched all source RGB pixels and repeated byte-identically; cell/contrast/brightness controls ran. AndroidRuntime error output was empty. [Scenes](captures/weather-gpt-ascii-scenes.png), [rain animation](captures/weather-gpt-ascii-rain.gif), [actual weather pages](captures/weather-gpt-ascii-pages.png). Temporary runner and fixtures are not packaged in the app.
 
-### Original Forest lake (preserved)
+### Intermediate collage variant (shipped in 1.7, removed in 1.7.1)
 
 - Switched Forest lake to the supplied `weather-square-ref.png`: two near-square snow/rain scenes and three portrait cloud/sun/night scenes, cropped without frames/gutters and without stretching or forcing common dimensions.
 - Clean FLA2 cutover stores per-panel dimensions, celestial anchors and 1,481,717 full-resolution square samples. Default `cell=1` retains 1×1 source RGB and all 256 luminance levels instead of first reducing the source to 14 glyph levels. No FLA1 shim; obsolete `--dark-threshold` removed.

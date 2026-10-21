@@ -4,17 +4,17 @@
 
 **[Скачать APK](https://github.com/Arkuda/phosphor_demake/releases/latest/download/app-debug.apk)** · [Все релизы](https://github.com/Arkuda/phosphor_demake/releases) · [История изменений](CHANGELOG.md)
 
-**1.7:** новый стиль **«Лесное озеро true-ascii»** с отдельными ASCII-сценами и живой погодной анимацией. Прежнее **«Лесное озеро»** остаётся отдельным пунктом; сохранённый выбор не переключается автоматически. [Выбор обоих вариантов](captures/weather-styles-selector-ru.png).
+**1.7.1:** обычное **«Лесное озеро»** возвращено строго из опубликованного **1.6.0**; промежуточный вариант, ошибочно попавший в 1.7, удалён. **«Лесное озеро true-ascii»** остаётся отдельным пунктом без изменений. Сохранённый выбор не переключается автоматически.
 
 ## Скриншоты
 
 <p align="center">
-  <img src="captures/release-1.7-true-ascii-home.png" width="260" alt="Главный экран 1.7: Лесное озеро true-ascii после обновления с сохранённой палитрой amber; тестовая погода" />
-  <img src="captures/release-1.7-weather-styles.png" width="260" alt="Меню 1.7 сохраняет прежнее Лесное озеро и добавляет отдельное Лесное озеро true-ascii" />
+  <img src="captures/hotfix-1.7.1-original-home.png" width="260" alt="Главный экран 1.7.1: возвращённый процедурный лес из опубликованного 1.6.0; тестовая погода" />
+  <img src="captures/hotfix-1.7.1-true-ascii-home.png" width="260" alt="Главный экран 1.7.1: отдельное Лесное озеро true-ascii осталось без изменений" />
   <img src="captures/keyguard-ru-language.png" width="260" alt="Русский интерфейс Phosphor на настоящем экране блокировки Android" />
 </p>
 
-Снимки работающего приложения в Android-эмуляторе, не макеты. Первые два — версия **1.7** после установки поверх опубликованной **1.6**: сохранена палитра amber, для проверки графики используются явно обозначенные тестовые погодные данные. Заметка, язык, страницы и прежний выбранный стиль также сохранились; [заметка после обновления](captures/release-1.7-upgrade-notes.png). Третий снимок — ранее проверенный русский локскрин. Также: [реальный прогноз Самары в 1.6](captures/weather-forest-home-compact-xl.png), [погода на настоящем локскрине, включая офлайн-кэш](captures/weather-lock-shared-cache.png), [выровненная сетка месяца](captures/calendar-aligned-normal.png), [события календаря](captures/dashboard-final.png), [список приложений](captures/apps-updated.png), [арт ascii.rest на Zen](captures/ascii-zen.png).
+Снимки работающего приложения в Android-эмуляторе, не макеты. Первые два — **1.7.1** после обновления с **1.7**: слева обычный лес из **1.6.0**, справа неизменённый **true-ascii**. Для проверки используются явно обозначенные тестовые погодные данные. Рендер обычного леса сравнивался со скачанным APK 1.6.0, true-ascii — со скачанным APK 1.7.0: все проверенные кадры совпали попиксельно. Третий снимок — ранее проверенный русский локскрин. Также: [реальный прогноз Самары в 1.6](captures/weather-forest-home-compact-xl.png), [погода на настоящем локскрине, включая офлайн-кэш](captures/weather-lock-shared-cache.png), [выровненная сетка месяца](captures/calendar-aligned-normal.png), [события календаря](captures/dashboard-final.png), [список приложений](captures/apps-updated.png), [арт ascii.rest на Zen](captures/ascii-zen.png).
 
 Изменения 1.4: [короткий диалог на 720×1280](captures/weather-dialog-compact-fit-1.4.png), [главная без рамок с переименованным приложением в доке](captures/frameless-matrix-main-1.4.png), [настоящий локскрин без рамок](captures/frameless-keyguard-1.4.png).
 
@@ -75,9 +75,9 @@
 
 Оформление погоды: **◆ phosphor → weather / location → ASCII weather**. Доступны **Landscape** (прежний точечный пейзаж), **Terminal icons** (крупный погодный символ), **ASCII postcard** (текстовый пейзаж с горами), **Orbital dial** (круговой ASCII-индикатор), **Forest lake** (прежний лес с озером) и **Forest lake true-ascii** (новые сгенерированные ASCII-сцены). В русском меню два последних пункта называются **«Лесное озеро»** и **«Лесное озеро true-ascii»**. Выбор сохраняется после перезапуска и применяется на главной, странице **weather** и в погодном режиме **Zen**; отдельный режим ascii.rest не меняется. Рисунки учитывают день/ночь, облачность, туман, морось, дождь, снег и грозу; без прогноза не добавляют выдуманные осадки или солнце/луну.
 
-**Forest lake** сохранён отдельно: прежний `weather-square-ref.png`, ресурс FLA2 `weather/forest-lake.bin` и исходный рендер с вписыванием всей композиции, прежними цветами и анимациями. Существующий идентификатор настройки `forest_lake` по-прежнему выбирает этот вариант. Новый **true-ascii** имеет собственный идентификатор `forest_lake_true_ascii`; автоматического переключения между ними нет.
+**Forest lake** — исходный процедурный рендер из тега **v1.6.0**: лес, горы, берега и отражения строятся нативным кодом из символов, без PNG-фона и без промежуточного FLA2-ресурса. В 1.7 вместо него по ошибке попал вариант на основе `weather-square-ref.png`; в **1.7.1** восстановлен именно опубликованный лес 1.6.0, с его прежними цветами, пропорциями и анимациями. Идентификатор `forest_lake` не изменён. Новый **true-ascii** использует отдельный `forest_lake_true_ascii`; автоматического переключения между ними нет.
 
-Раздельный выбор проверен через настоящее меню Android: [Русский](captures/weather-styles-selector-ru.png), [English](captures/weather-styles-selector-en.png). Оба идентификатора пережили перезапуск процесса; переключение возвращает соответствующую графику: [прежний вариант](captures/weather-styles-original-home.png), [true-ascii](captures/weather-styles-true-ascii-home.png). На этих снимках используются тестовые погодные данные.
+Раздельный выбор доступен через настоящее меню Android: [Русский](captures/weather-styles-selector-ru.png), [English](captures/weather-styles-selector-en.png). После обновления 1.7 → 1.7.1 сохранены выбранный стиль, язык, палитра, страницы и заметка; проверено переключение между [исходным лесом 1.6.0](captures/hotfix-1.7.1-original-home.png) и [true-ascii](captures/hotfix-1.7.1-true-ascii-home.png). На снимках используются тестовые погодные данные.
 
 **Forest lake true-ascii** использует десять отдельных цветных ASCII-референсов, сгенерированных GPT Image 2 с визуальным ориентиром [ascii.rest](https://ascii.rest/): снег, дождь, пасмурно, солнце и ночь, каждый в вариантах **16:9 (1536×864)** и **1:1 (1254×1254)**. Исходники лежат в `weather-references/gpt-image`; это рисунки из различимых печатных символов, а не пейзажи с пиксельным фильтром. Фоны намеренно не содержат падающих осадков и кругов от капель: эти эффекты рисуются отдельно в реальном времени.
 
@@ -89,7 +89,7 @@
 
 Вода колышется за счёт смещения отражений и движущихся бликов. После попадания дождевой капли появляются всплеск и **три расходящихся затухающих эллиптических волны**; несколько локальных полос рефракции дают видимые разводы отражения вокруг удара. Конец падающей капли совпадает с центром колец. В морось плотность, размер и яркость эффекта меньше. Маска открытого озера проверяет весь след линий, фильтрации и сглаживания: берег и камни не двигаются. Снежинки падают тремя слоями; солнечные блики используют положение солнца из нового референса. Анимация использует существующий цикл отрисовки и его энергосберегающую частоту.
 
-Визуальные ориентиры первых наборов: [wego](https://github.com/schachmat/wego/blob/master/frontends/ascii-art-table.go) и [wttr.in](https://github.com/chubin/wttr.in#usage); Forest lake true-ascii — отдельный сгенерированный набор. Его графика проверена на Android с явно обозначенными тестовыми погодными условиями: [оба формата пяти сцен](captures/weather-gpt-ascii-scenes.png), [дождь и разводы — GIF](captures/weather-gpt-ascii-rain.gif), [главная](captures/weather-gpt-ascii-home.png), [погода с дождём](captures/weather-gpt-ascii-page.png), [пять настоящих страниц погоды](captures/weather-gpt-ascii-pages.png), [солнце](captures/weather-gpt-ascii-sun-page.png), [Zen](captures/weather-gpt-ascii-zen.png), [paper / XL](captures/weather-gpt-ascii-paper-xl.png), [главная 1080×2340](captures/weather-gpt-ascii-1080-home.png), [погода 1080×2340](captures/weather-gpt-ascii-1080-page.png). Это не снимки живого прогноза. [Прежние сцены Forest lake](captures/weather-square-scenes.png) также остаются доступны в приложении.
+Визуальные ориентиры первых наборов: [wego](https://github.com/schachmat/wego/blob/master/frontends/ascii-art-table.go) и [wttr.in](https://github.com/chubin/wttr.in#usage); Forest lake true-ascii — отдельный сгенерированный набор. Его графика проверена на Android с явно обозначенными тестовыми погодными условиями: [оба формата пяти сцен](captures/weather-gpt-ascii-scenes.png), [дождь и разводы — GIF](captures/weather-gpt-ascii-rain.gif), [главная](captures/weather-gpt-ascii-home.png), [погода с дождём](captures/weather-gpt-ascii-page.png), [пять настоящих страниц погоды](captures/weather-gpt-ascii-pages.png), [солнце](captures/weather-gpt-ascii-sun-page.png), [Zen](captures/weather-gpt-ascii-zen.png), [paper / XL](captures/weather-gpt-ascii-paper-xl.png), [главная 1080×2340](captures/weather-gpt-ascii-1080-home.png), [погода 1080×2340](captures/weather-gpt-ascii-1080-page.png). Это не снимки живого прогноза. Промежуточные сцены на основе квадратного коллажа больше не используются; их примеры сохранены только в истории изменений.
 
 Погоду для локскрина отдельно настраивать не нужно: он использует тот же прогноз. При загрузке, отключённой погоде или ошибке показывается соответствующее состояние, а не ложное «weather not configured».
 
@@ -125,15 +125,14 @@ npm ci --ignore-scripts
 npm run build:ascii
 ```
 
-Погодные ресурсы обоих вариантов пересоздаются отдельно (Python 3 и Pillow):
+PNG-ресурсы **true-ascii** пересоздаются отдельно (Python 3 и Pillow). Обычный лес генерируется процедурно в Android и внешнего конвертера не требует:
 
 ```sh
 python -m pip install Pillow
 python scripts/build-weather-ascii.py weather-references/gpt-image --cell 1
-python scripts/build-weather-legacy-ascii.py weather-square-ref.png --cell 1
 ```
 
-У PNG-конвертера `build-weather-ascii.py` дополнительные параметры: `--contrast` (−255…255, по умолчанию 0), `--brightness` (−100…100 %, по умолчанию 0), `--output` (каталог результата). По умолчанию каждый RGB-пиксель сохраняется без изменений. `--cell 2` уменьшает оба формата BOX-фильтром с сохранением полного изображения и точных пропорций; слишком большой коэффициент, при котором точные пропорции невозможны, отклоняется до записи. Конвертер проверяет все десять входных PNG и `geometry.json`, затем создаёт `app/src/main/assets/weather/forest-lake.json` и PNG в подкаталогах `wide`/`square`. Независимый `build-weather-legacy-ascii.py` восстанавливает прежний FLA2 `app/src/main/assets/weather/forest-lake.bin`; его `--output` задаёт путь к бинарному файлу, а не каталог. Обычная Android-сборка использует оба готовых набора, не запускает Python и не обращается к генератору или сайту.
+У PNG-конвертера `build-weather-ascii.py` дополнительные параметры: `--contrast` (−255…255, по умолчанию 0), `--brightness` (−100…100 %, по умолчанию 0), `--output` (каталог результата). По умолчанию каждый RGB-пиксель сохраняется без изменений. `--cell 2` уменьшает оба формата BOX-фильтром с сохранением полного изображения и точных пропорций; слишком большой коэффициент, при котором точные пропорции невозможны, отклоняется до записи. Конвертер проверяет все десять входных PNG и `geometry.json`, затем создаёт `app/src/main/assets/weather/forest-lake.json` и PNG в подкаталогах `wide`/`square`. Неиспользуемые FLA2-ресурс и его конвертер удалены. Обычная Android-сборка не запускает Python и не обращается к генератору или сайту.
 
 
 ## Проверка и ограничения
